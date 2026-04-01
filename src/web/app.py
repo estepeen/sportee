@@ -19,6 +19,8 @@ from src.tennis.sofascore_api import load_sofascore_odds, get_usage as ss_usage
 from src.tennis.model import load_model as load_tennis_model, _get_avg_stats
 from src.tennis.picks_tracker import track_picks, resolve_picks, get_analytics
 from src.tennis.lucky_loser import get_ll_warnings_for_matches, check_ll_risk, get_open_fade_picks
+from src.tennis.doubles_sofascore import load_doubles_odds
+from src.tennis.doubles_model import load_doubles_model as _load_dbl_model, predict_doubles_match
 
 app = FastAPI(title="Sportee")
 _tennis_model = None
@@ -96,11 +98,20 @@ def _recompute_cache():
         except Exception:
             pass
 
+        # Doubles
+        doubles_matches = []
+        try:
+            doubles_matches = load_doubles_odds()
+            doubles_matches = _enrich_doubles_with_predictions(doubles_matches)
+        except Exception:
+            pass
+
         _predictions_cache = {
             "matches": upcoming,
             "all_matches": all_matches,
             "picks": picks[:8],
             "value_bets": value_bets,
+            "doubles": doubles_matches,
             "updated": datetime.now().isoformat(),
         }
     except Exception:
@@ -133,12 +144,15 @@ async def dashboard(request: Request):
         import threading
         threading.Thread(target=_recompute_cache, daemon=True).start()
 
+    doubles = _predictions_cache.get("doubles", [])
+
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
         "active_page": "portfolio",
         "bet_stats": bet_stats,
         "tennis_matches": upcoming,
         "all_tennis_matches": all_matches,
+        "doubles_matches": doubles,
         "recent_bets": recent_bets,
         "top_picks": top_picks,
         "value_bets": value_bets,
@@ -333,6 +347,63 @@ def _enrich_with_predictions(matches: list) -> list:
 
             # Store features for pick reason builder
             m.update(features)
+        except Exception:
+            continue
+
+    conn.close()
+    return matches
+
+
+def _enrich_doubles_with_predictions(matches: list) -> list:
+    """Add ML predictions to doubles matches."""
+    dbl_model = _load_dbl_model()
+    if not dbl_model:
+        return matches
+
+    from src.tennis.database import get_tennis_db
+    from src.tennis.stats import find_player
+    import pandas as pd
+
+    conn = get_tennis_db()
+
+    for m in matches:
+        try:
+            # Find all 4 players
+            p1a = find_player(conn, m.get("team1_p1", ""))
+            p1b = find_player(conn, m.get("team1_p2", ""))
+            p2a = find_player(conn, m.get("team2_p1", ""))
+            p2b = find_player(conn, m.get("team2_p2", ""))
+            if not p1a or not p1b or not p2a or not p2b:
+                continue
+
+            result = predict_doubles_match(p1a["id"], p1b["id"], p2a["id"], p2b["id"])
+            if "error" in result:
+                continue
+
+            # Clamp + blend with market (same as singles)
+            raw_p1 = max(0.15, min(0.85, result["t1_win_prob"]))
+            raw_p2 = 1.0 - raw_p1
+
+            mkt_p1 = m.get("player1_price", 0.5)
+            mkt_p2 = m.get("player2_price", 0.5)
+            mkt_sum = mkt_p1 + mkt_p2
+            if mkt_sum > 0.01:
+                mkt_p1_n = mkt_p1 / mkt_sum
+                mkt_p2_n = mkt_p2 / mkt_sum
+            else:
+                mkt_p1_n, mkt_p2_n = 0.5, 0.5
+
+            p1_final = 0.7 * raw_p1 + 0.3 * mkt_p1_n
+            p2_final = 1.0 - p1_final
+
+            m["ml_p1_prob"] = round(p1_final, 4)
+            m["ml_p2_prob"] = round(p2_final, 4)
+            m["ml_p1_odds"] = round(1 / p1_final, 2) if p1_final > 0.01 else 99.0
+            m["ml_p2_odds"] = round(1 / p2_final, 2) if p2_final > 0.01 else 99.0
+            m["p1_edge"] = round((p1_final - mkt_p1_n) * 100, 1)
+            m["p2_edge"] = round((p2_final - mkt_p2_n) * 100, 1)
+            m["p1_value"] = m["p1_edge"] >= 5
+            m["p2_value"] = m["p2_edge"] >= 5
         except Exception:
             continue
 

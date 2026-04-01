@@ -132,6 +132,56 @@
     </div>
 </div>
 
+<!-- Doubles Pulse -->
+{% if doubles_matches %}
+<div class="section mb-16">
+    <div class="section-header">
+        <div class="section-title"><span class="dot" style="background:#60a5fa"></span> Doubles</div>
+        <span class="badge" style="background:#1e3a5f;color:#60a5fa">{{ doubles_matches|length }} MATCHES</span>
+    </div>
+    <div class="pulse-scroll">
+        {% for m in doubles_matches %}
+        <div class="pulse-card {% if m.p1_value or m.p2_value %}pulse-value{% endif %}">
+            <div class="pulse-top">
+                <div class="pulse-event">
+                    <span class="badge" style="background:#1e3a5f;color:#60a5fa">{{ m.tour }} DBL</span>
+                    {{ m.tournament[:22] }}
+                </div>
+                {% if m.p1_value or m.p2_value %}
+                <span class="badge" style="background:#1a472a;color:#4ade80;font-size:9px">VALUE</span>
+                {% endif %}
+            </div>
+            <div class="pulse-matchup" style="font-size:13px">{{ m.team1_name }}</div>
+            <div style="font-size:10px;color:var(--text-faint);margin-bottom:6px">vs</div>
+            <div class="pulse-matchup" style="font-size:13px;margin-bottom:10px">{{ m.team2_name }}</div>
+            <div class="tennis-odds">
+                <div class="tennis-player {% if m.player1_price >= m.player2_price %}fav{% endif %} {% if m.p1_value %}value-pick{% endif %}">
+                    <div>
+                        <div class="name">Team 1</div>
+                        <div class="pct">{{ (m.player1_price*100)|round(0) }}%</div>
+                    </div>
+                    <div class="odds">{{ m.player1_odds }}</div>
+                </div>
+                <div class="tennis-player {% if m.player2_price >= m.player1_price %}fav{% endif %} {% if m.p2_value %}value-pick{% endif %}">
+                    <div>
+                        <div class="name">Team 2</div>
+                        <div class="pct">{{ (m.player2_price*100)|round(0) }}%</div>
+                    </div>
+                    <div class="odds">{{ m.player2_odds }}</div>
+                </div>
+            </div>
+            {% if m.ml_p1_prob %}
+            <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-faint);font-family:'Manrope',sans-serif">
+                <span>AI: <b style="color:var(--text-dim)">{{ (m.ml_p1_prob*100)|round(0) }}%</b>{% if m.p1_edge %} <span style="color:{% if m.p1_edge > 0 %}#4ade80{% else %}var(--text-faint){% endif %}">{% if m.p1_edge > 0 %}+{% endif %}{{ m.p1_edge }}%</span>{% endif %}</span>
+                <span>AI: <b style="color:var(--text-dim)">{{ (m.ml_p2_prob*100)|round(0) }}%</b>{% if m.p2_edge %} <span style="color:{% if m.p2_edge > 0 %}#4ade80{% else %}var(--text-faint){% endif %}">{% if m.p2_edge > 0 %}+{% endif %}{{ m.p2_edge }}%</span>{% endif %}</span>
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
 <!-- AI Picks -->
 {% if top_picks %}
 <div class="section mb-16">

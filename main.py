@@ -299,6 +299,7 @@ async def main():
         print("  tennis-train  - Retrain tennis model (global + surface-specific)")
         print("  doubles-init  - Fetch doubles history (2015-now) + build Elo")
         print("  doubles-update- Quick doubles update (recent matches + odds)")
+        print("  doubles-train - Train doubles prediction model")
         return
 
     command = sys.argv[1]
@@ -331,6 +332,7 @@ async def main():
         from src.tennis.doubles_data import fetch_all_doubles
         from src.tennis.doubles_elo import compute_doubles_elo
         from src.tennis.doubles_sofascore import import_doubles_recent
+        from src.tennis.doubles_model import train_doubles_model
         logger.info("=== Fetching doubles history ===")
         start = int(sys.argv[2]) if len(sys.argv) > 2 else 2015
         await fetch_all_doubles(start_year=start)
@@ -338,6 +340,10 @@ async def main():
         await import_doubles_recent(days=90)
         logger.info("=== Computing doubles Elo ===")
         compute_doubles_elo()
+        logger.info("=== Training doubles model ===")
+        acc = train_doubles_model()
+        if acc:
+            logger.info(f"Doubles model trained, accuracy: {acc:.4f}")
     elif command == "doubles-update":
         from src.tennis.doubles_data import fetch_doubles_incremental
         from src.tennis.doubles_elo import compute_doubles_elo
@@ -349,6 +355,12 @@ async def main():
             logger.info(f"{new + ss_new} new doubles matches → recomputing Elo")
             compute_doubles_elo()
         await fetch_doubles_upcoming_with_odds(days=2)
+    elif command == "doubles-train":
+        from src.tennis.doubles_model import train_doubles_model
+        logger.info("=== Training doubles model ===")
+        acc = train_doubles_model()
+        if acc:
+            logger.info(f"Doubles model trained, accuracy: {acc:.4f}")
     elif command == "web":
         import uvicorn
         from src.web.app import app
