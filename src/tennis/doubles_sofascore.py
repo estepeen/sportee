@@ -353,8 +353,10 @@ async def fetch_doubles_upcoming_with_odds(days: int = 2) -> list[dict]:
 
                 home = ev.get("homeTeam", {})
                 away = ev.get("awayTeam", {})
-                h_p1, h_p2, h_display = _parse_doubles_team(home)
-                a_p1, a_p2, a_display = _parse_doubles_team(away)
+                h_info = _parse_doubles_team(home)
+                a_info = _parse_doubles_team(away)
+                h_p1, h_p2, h_display = h_info["p1_db"], h_info["p2_db"], h_info["display"]
+                a_p1, a_p2, a_display = a_info["p1_db"], a_info["p2_db"], a_info["display"]
                 if not h_p1 or not h_p2 or not a_p1 or not a_p2:
                     continue
 
