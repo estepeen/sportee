@@ -359,21 +359,40 @@ setTimeout(() => location.reload(), 120000);
         let html = '';
         for (const m of matches) {
             const hasBet = m.has_bet;
-            const border = hasBet ? 'border-color:rgba(255,113,108,0.5)' : '';
             const p1Fav = m.player1_price > m.player2_price;
             const p1Pct = Math.round(m.player1_price * 100);
             const p2Pct = Math.round(m.player2_price * 100);
 
-            // P&L indicator for our bet
+            // Determine if we're winning: current price > implied prob from our bet odds
+            let winning = false;
+            let border = '';
+            let betBadge = '';
+            if (hasBet && m.our_price && m.bet_odds) {
+                const ourImplied = 1 / m.bet_odds;  // what we paid
+                winning = m.our_price > ourImplied;  // current market says we're ahead
+                border = winning
+                    ? 'border-color:rgba(162,255,0,0.5);box-shadow:0 0 12px rgba(162,255,0,0.1)'
+                    : 'border-color:rgba(255,113,108,0.5);box-shadow:0 0 12px rgba(255,113,108,0.1)';
+                betBadge = winning
+                    ? '<span class="badge" style="background:var(--primary-bg);color:var(--primary);font-size:9px">WINNING</span>'
+                    : '<span class="badge" style="background:var(--error-bg);color:var(--error);font-size:9px">LOSING</span>';
+            } else if (hasBet) {
+                border = 'border-color:rgba(191,90,242,0.4)';
+                betBadge = '<span class="badge" style="background:var(--tertiary-bg);color:var(--tertiary);font-size:9px">MY BET</span>';
+            }
+
+            // P&L indicator
             let betInfo = '';
             if (hasBet) {
-                const winning = m.our_price && m.our_price > 0.5;
                 const pctStr = m.our_price ? Math.round(m.our_price * 100) + '%' : '';
                 const color = winning ? 'var(--primary)' : 'var(--error)';
-                betInfo = `<div style="margin-top:8px;padding:6px 8px;background:${winning?'var(--primary-bg)':'var(--error-bg)'};border-radius:6px;font-size:11px;font-family:'Manrope',sans-serif">
+                const bg = winning ? 'var(--primary-bg)' : 'var(--error-bg)';
+                // Potential profit/loss
+                const potentialWin = m.bet_stake ? `+$${Math.round(m.bet_stake * (m.bet_odds - 1))}` : '';
+                betInfo = `<div style="margin-top:8px;padding:6px 8px;background:${bg};border-radius:6px;font-size:11px;font-family:'Manrope',sans-serif">
                     <span style="color:${color};font-weight:700">${m.bet_label}</span>
                     <span style="color:var(--text-faint)"> @ ${m.bet_odds} · $${m.bet_stake}</span>
-                    <span style="float:right;color:${color};font-weight:700;font-family:'Space Grotesk',sans-serif">${pctStr}</span>
+                    <span style="float:right;color:${color};font-weight:700;font-family:'Space Grotesk',sans-serif">${pctStr} ${winning ? potentialWin : '-$'+m.bet_stake}</span>
                 </div>`;
             }
 
@@ -383,7 +402,7 @@ setTimeout(() => location.reload(), 120000);
                         <span class="badge badge-live">LIVE</span>
                         ${m.tournament ? m.tournament.slice(0, 20) : ''}
                     </div>
-                    ${hasBet ? '<span class="badge" style="background:var(--error-bg);color:var(--error);font-size:9px">MY BET</span>' : ''}
+                    ${betBadge}
                 </div>
                 <div style="margin:10px 0">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
