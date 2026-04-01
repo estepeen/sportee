@@ -140,19 +140,14 @@
         <span class="badge" style="background:#1a472a;color:#4ade80">{{ top_picks|length }} PLAYS</span>
     </div>
     <div class="tbl-wrap"><table class="tbl paged-tbl">
-        <thead><tr><th>Status</th><th>Conf.</th><th>Play</th><th>Type</th><th>Match</th><th>AI</th><th>Market</th><th>Edge</th><th>Odds</th><th>Stake</th><th></th></tr></thead>
+        <thead><tr><th>Conf.</th><th>Play</th><th>Type</th><th>Match</th><th>AI</th><th>Market</th><th>Edge</th><th>Odds</th><th>Stake</th><th></th></tr></thead>
         <tbody>
         {% for p in top_picks %}
         <tr style="{% if p.status == 'WIN' %}background:rgba(74,222,128,0.05){% elif p.status == 'LOSS' %}background:rgba(239,68,68,0.05){% endif %}">
             <td>
-                {% if p.status == 'WIN' %}<span class="status-won">WIN</span>
-                {% elif p.status == 'LOSS' %}<span class="status-lost">LOSS</span>
-                {% else %}<span class="status-pending">OPEN</span>{% endif %}
-            </td>
-            <td>
-                {% if p.stars >= 3 %}<span style="color:#4ade80;font-weight:700;font-size:11px">HIGH</span>
-                {% elif p.stars >= 2 %}<span style="color:#f59e0b;font-weight:700;font-size:11px">MED</span>
-                {% else %}<span style="color:var(--text-faint);font-size:11px">LOW</span>{% endif %}
+                {% if p.stars >= 3 %}<span style="background:var(--primary-bg);color:#4ade80;font-weight:700;font-size:11px;padding:4px 10px;border-radius:4px;font-family:'Manrope',sans-serif">HIGH</span>
+                {% elif p.stars >= 2 %}<span style="background:#3b2f1e;color:#f59e0b;font-weight:700;font-size:11px;padding:4px 10px;border-radius:4px;font-family:'Manrope',sans-serif">MED</span>
+                {% else %}<span style="background:var(--surface-highest);color:var(--text-faint);font-size:11px;padding:4px 10px;border-radius:4px;font-family:'Manrope',sans-serif">LOW</span>{% endif %}
             </td>
             <td><span style="font-weight:700;color:var(--text)">{{ p.pick }}</span></td>
             <td>
@@ -185,19 +180,14 @@
         <span class="badge" style="background:#3b2f1e;color:#f59e0b">{{ value_bets|length }} VALUE</span>
     </div>
     <div class="tbl-wrap"><table class="tbl paged-tbl">
-        <thead><tr><th>Status</th><th>Conf.</th><th>Play</th><th>Type</th><th>Match</th><th>AI</th><th>Market</th><th>Edge</th><th>Odds</th><th></th></tr></thead>
+        <thead><tr><th>Conf.</th><th>Play</th><th>Type</th><th>Match</th><th>AI</th><th>Market</th><th>Edge</th><th>Odds</th><th></th></tr></thead>
         <tbody>
         {% for v in value_bets %}
         <tr style="{% if v.status == 'WIN' %}background:rgba(74,222,128,0.05){% elif v.status == 'LOSS' %}background:rgba(239,68,68,0.05){% endif %}">
             <td>
-                {% if v.status == 'WIN' %}<span class="status-won">WIN</span>
-                {% elif v.status == 'LOSS' %}<span class="status-lost">LOSS</span>
-                {% else %}<span class="status-pending">OPEN</span>{% endif %}
-            </td>
-            <td>
-                {% if v.confidence == 'HIGH' %}<span style="color:#4ade80;font-weight:700;font-size:11px">HIGH</span>
-                {% elif v.confidence == 'MEDIUM' %}<span style="color:#f59e0b;font-weight:700;font-size:11px">MED</span>
-                {% else %}<span style="color:var(--text-faint);font-size:11px">LOW</span>{% endif %}
+                {% if v.confidence == 'HIGH' %}<span style="background:var(--primary-bg);color:#4ade80;font-weight:700;font-size:11px;padding:4px 10px;border-radius:4px;font-family:'Manrope',sans-serif">HIGH</span>
+                {% elif v.confidence == 'MEDIUM' %}<span style="background:#3b2f1e;color:#f59e0b;font-weight:700;font-size:11px;padding:4px 10px;border-radius:4px;font-family:'Manrope',sans-serif">MED</span>
+                {% else %}<span style="background:var(--surface-highest);color:var(--text-faint);font-size:11px;padding:4px 10px;border-radius:4px;font-family:'Manrope',sans-serif">LOW</span>{% endif %}
             </td>
             <td><span style="font-weight:700;color:var(--text)">{{ v.pick }}</span></td>
             <td>

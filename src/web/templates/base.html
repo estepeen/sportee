@@ -46,8 +46,33 @@
         .nav-balance { font-family: 'Space Grotesk', sans-serif; font-size: 20px; font-weight: 700; color: var(--text); letter-spacing: -0.5px; }
         .nav-balance-sub { font-size: 10px; color: var(--primary); text-align: right; font-weight: 600; font-family: 'Manrope', sans-serif; }
         .nav-icons { display: flex; gap: 8px; }
-        .nav-icon { width: 34px; height: 34px; border-radius: 8px; background: var(--surface-high); display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-muted); font-size: 15px; transition: all .15s; }
+        .nav-icon { width: 34px; height: 34px; border-radius: 8px; background: var(--surface-high); display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-muted); font-size: 15px; transition: all .15s; position: relative; }
         .nav-icon:hover { background: var(--surface-highest); color: var(--text); }
+        .nav-icon .notif-dot { position: absolute; top: 4px; right: 4px; width: 8px; height: 8px; border-radius: 50%; background: var(--error); display: none; }
+        .nav-icon .notif-dot.show { display: block; animation: pulse-dot 2s infinite; }
+
+        /* Notification Sidebar */
+        .notif-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 200; opacity: 0; pointer-events: none; transition: opacity .2s; }
+        .notif-overlay.open { opacity: 1; pointer-events: auto; }
+        .notif-sidebar { position: fixed; top: 0; right: -400px; width: 380px; height: 100vh; background: var(--surface); border-left: 1px solid var(--border-dim); z-index: 201; transition: right .25s ease; overflow-y: auto; }
+        .notif-sidebar.open { right: 0; }
+        .notif-header { display: flex; justify-content: space-between; align-items: center; padding: 18px 20px; border-bottom: 1px solid var(--border-dim); position: sticky; top: 0; background: var(--surface); z-index: 1; }
+        .notif-title { font-family: 'Space Grotesk', sans-serif; font-size: 15px; font-weight: 700; color: var(--text); }
+        .notif-close { background: var(--surface-high); border: none; border-radius: 6px; width: 28px; height: 28px; color: var(--text-muted); cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; }
+        .notif-close:hover { color: var(--text); background: var(--surface-highest); }
+        .notif-list { padding: 8px 12px; }
+        .notif-item { display: flex; gap: 10px; padding: 12px 8px; border-radius: 8px; transition: background .1s; }
+        .notif-item:hover { background: var(--surface-high); }
+        .notif-item + .notif-item { border-top: 1px solid var(--border-dim); }
+        .notif-icon { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; flex-shrink: 0; font-family: 'Manrope', sans-serif; }
+        .notif-icon.won { background: var(--primary-bg); color: var(--primary); }
+        .notif-icon.lost { background: var(--error-bg); color: var(--error); }
+        .notif-icon.info { background: var(--tertiary-bg); color: var(--tertiary); }
+        .notif-body { flex: 1; min-width: 0; }
+        .notif-text { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+        .notif-text b { color: var(--text); }
+        .notif-time { font-size: 10px; color: var(--text-faint); margin-top: 3px; font-family: 'Manrope', sans-serif; }
+        .notif-empty { text-align: center; padding: 40px 20px; color: var(--text-faint); font-size: 12px; }
 
         .main { max-width: 1440px; margin: 0 auto; padding: 20px 28px; }
 
@@ -172,7 +197,7 @@
             <div class="nav-balance-sub">{% if (bet_stats.roi|default(0)) >= 0 %}+{% endif %}{{ bet_stats.roi|default(0) }}% ROI</div>
         </div>
         <div class="nav-icons">
-            <div class="nav-icon" title="Notifications">&#128276;</div>
+            <div class="nav-icon" id="notif-bell" title="Notifications" onclick="toggleNotifSidebar()">&#128276;<span class="notif-dot" id="notif-dot"></span></div>
             <div class="nav-icon" title="Settings">&#9881;</div>
         </div>
     </div>
@@ -181,6 +206,18 @@
 <div class="main">
     {% block content %}{% endblock %}
     <footer>SPORTEE &middot; Tennis + CS2 &middot; Auto-refresh 60s</footer>
+</div>
+
+<!-- Notification Sidebar -->
+<div class="notif-overlay" id="notif-overlay" onclick="toggleNotifSidebar()"></div>
+<div class="notif-sidebar" id="notif-sidebar">
+    <div class="notif-header">
+        <div class="notif-title">Notifications</div>
+        <button class="notif-close" onclick="toggleNotifSidebar()">&times;</button>
+    </div>
+    <div class="notif-list" id="notif-list">
+        <div class="notif-empty">Loading...</div>
+    </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -343,6 +380,68 @@ function initPagers() {
     });
 }
 document.addEventListener('DOMContentLoaded', initPagers);
+
+// ─── Notification Sidebar ───
+let _notifOpen = false;
+function toggleNotifSidebar() {
+    _notifOpen = !_notifOpen;
+    document.getElementById('notif-overlay').classList.toggle('open', _notifOpen);
+    document.getElementById('notif-sidebar').classList.toggle('open', _notifOpen);
+    if (_notifOpen) loadNotifications();
+}
+
+async function loadNotifications() {
+    const list = document.getElementById('notif-list');
+    try {
+        const r = await fetch('/api/positions');
+        const data = await r.json();
+        const bets = (data.bets || []).filter(b => b.status === 'won' || b.status === 'lost');
+        bets.sort((a, b) => (b.resolved_at || b.created_at || '').localeCompare(a.resolved_at || a.created_at || ''));
+        const recent = bets.slice(0, 20);
+
+        if (recent.length === 0) {
+            list.innerHTML = '<div class="notif-empty">No resolved bets yet</div>';
+            document.getElementById('notif-dot').classList.remove('show');
+            return;
+        }
+
+        let html = '';
+        for (const b of recent) {
+            const won = b.status === 'won';
+            const icon = won ? 'W' : 'L';
+            const cls = won ? 'won' : 'lost';
+            const pl = won ? `+$${b.profit || 0}` : `-$${b.stake}`;
+            const plColor = won ? 'var(--primary)' : 'var(--error)';
+            const date = (b.resolved_at || b.created_at || '').slice(0, 10);
+            const result = b.actual_result || '';
+
+            html += `<div class="notif-item">
+                <div class="notif-icon ${cls}">${icon}</div>
+                <div class="notif-body">
+                    <div class="notif-text"><b>${b.market_label}</b> <span style="color:${plColor};font-weight:700">${pl}</span></div>
+                    <div class="notif-text">${b.team1_name} vs ${b.team2_name}${result ? ' · ' + result : ''}</div>
+                    <div class="notif-time">${date} · @${b.our_odds || '-'} · $${b.stake}</div>
+                </div>
+            </div>`;
+        }
+        list.innerHTML = html;
+
+        // Show dot if there are recent resolved bets (last 24h)
+        const now = Date.now();
+        const hasRecent = recent.some(b => {
+            const d = new Date(b.resolved_at || b.created_at || 0).getTime();
+            return (now - d) < 86400000;
+        });
+        document.getElementById('notif-dot').classList.toggle('show', hasRecent);
+    } catch(e) {
+        list.innerHTML = '<div class="notif-empty">Failed to load</div>';
+    }
+}
+
+// Check for new notifications on page load
+document.addEventListener('DOMContentLoaded', () => {
+    loadNotifications().catch(() => {});
+});
 
 function playerUrl(name) {
     // Convert "Andreeva M." or "Mirra Andreeva" to /atp/player/andreeva-m or /wta/player/mirra-andreeva

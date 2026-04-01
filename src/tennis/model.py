@@ -532,14 +532,18 @@ def predict_match(player1_id: int, player2_id: int, surface: str,
         feature_cols = model_data["features"]
 
     X = pd.DataFrame([{col: features.get(col, 0) for col in feature_cols}])
-    prob = model.predict_proba(X)[0]
+    raw_prob = model.predict_proba(X)[0]
+
+    # Clamp: no model should output extremes beyond 15%-85%
+    p1_prob = max(0.15, min(0.85, float(raw_prob[1])))
+    p2_prob = 1.0 - p1_prob
 
     return {
-        "p1_win_prob": round(float(prob[1]), 4),
-        "p2_win_prob": round(float(prob[0]), 4),
-        "p1_odds": round(1 / prob[1], 2) if prob[1] > 0.01 else 99.0,
-        "p2_odds": round(1 / prob[0], 2) if prob[0] > 0.01 else 99.0,
-        "confidence": round(float(abs(prob[1] - 0.5) * 2), 4),
+        "p1_win_prob": round(p1_prob, 4),
+        "p2_win_prob": round(p2_prob, 4),
+        "p1_odds": round(1 / p1_prob, 2) if p1_prob > 0.01 else 99.0,
+        "p2_odds": round(1 / p2_prob, 2) if p2_prob > 0.01 else 99.0,
+        "confidence": round(float(abs(p1_prob - 0.5) * 2), 4),
         "model_used": used_model,
         "features": features,
     }

@@ -299,18 +299,33 @@ def _enrich_with_predictions(matches: list) -> list:
                 m["model_used"] = "global"
 
             X = pd.DataFrame([{col: features.get(col, 0) for col in feature_cols}])
-            prob = model.predict_proba(X)[0]
+            raw_prob = model.predict_proba(X)[0]
 
-            m["ml_p1_prob"] = round(float(prob[1]), 4)
-            m["ml_p2_prob"] = round(float(prob[0]), 4)
-            m["ml_p1_odds"] = round(1 / prob[1], 2) if prob[1] > 0.01 else 99.0
-            m["ml_p2_odds"] = round(1 / prob[0], 2) if prob[0] > 0.01 else 99.0
+            # Clamp raw model output (no model should output >85% or <15%)
+            p1_raw = max(0.15, min(0.85, float(raw_prob[1])))
+            p2_raw = 1.0 - p1_raw
 
-            # Edge = model prob - implied prob from market
+            # Blend with market odds (70% model, 30% market) to stay grounded
             mkt_p1 = m.get("player1_price", 0.5)
             mkt_p2 = m.get("player2_price", 0.5)
-            m["p1_edge"] = round((m["ml_p1_prob"] - mkt_p1) * 100, 1)
-            m["p2_edge"] = round((m["ml_p2_prob"] - mkt_p2) * 100, 1)
+            mkt_sum = mkt_p1 + mkt_p2
+            if mkt_sum > 0.01:
+                mkt_p1_norm = mkt_p1 / mkt_sum
+                mkt_p2_norm = mkt_p2 / mkt_sum
+            else:
+                mkt_p1_norm, mkt_p2_norm = 0.5, 0.5
+
+            p1_final = 0.7 * p1_raw + 0.3 * mkt_p1_norm
+            p2_final = 1.0 - p1_final
+
+            m["ml_p1_prob"] = round(p1_final, 4)
+            m["ml_p2_prob"] = round(p2_final, 4)
+            m["ml_p1_odds"] = round(1 / p1_final, 2) if p1_final > 0.01 else 99.0
+            m["ml_p2_odds"] = round(1 / p2_final, 2) if p2_final > 0.01 else 99.0
+
+            # Edge = blended model prob - market implied prob
+            m["p1_edge"] = round((p1_final - mkt_p1_norm) * 100, 1)
+            m["p2_edge"] = round((p2_final - mkt_p2_norm) * 100, 1)
 
             # Value bet flag
             m["p1_value"] = m["p1_edge"] >= 5
