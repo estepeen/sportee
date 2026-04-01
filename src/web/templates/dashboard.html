@@ -76,6 +76,18 @@
     </div>
 </div>
 
+<!-- LIVE Matches (WebSocket) -->
+<div class="section mb-16" id="live-section" style="display:none">
+    <div class="section-header">
+        <div class="section-title"><span class="dot" style="background:var(--error)"></span> LIVE</div>
+        <div style="display:flex;gap:8px;align-items:center">
+            <span class="badge badge-live" id="live-count">0 LIVE</span>
+            <span class="badge" style="background:var(--surface-highest);color:var(--text-faint);font-size:9px" id="live-ws-status">connecting...</span>
+        </div>
+    </div>
+    <div class="pulse-scroll" id="live-cards"></div>
+</div>
+
 <!-- Active Pulse - Tennis -->
 <div class="section mb-16">
     <div class="section-header">
@@ -412,6 +424,93 @@
 {% block scripts %}
 <script>
 setTimeout(() => location.reload(), 120000);
+
+// ─── Live WebSocket ───
+(function() {
+    const section = document.getElementById('live-section');
+    const cards = document.getElementById('live-cards');
+    const countEl = document.getElementById('live-count');
+    const wsStatus = document.getElementById('live-ws-status');
+    let ws = null;
+    let reconnectTimer = null;
+
+    function connect() {
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        ws = new WebSocket(`${proto}//${location.host}/ws/live`);
+
+        ws.onopen = () => { wsStatus.textContent = 'live'; wsStatus.style.color = 'var(--primary)'; };
+        ws.onclose = () => {
+            wsStatus.textContent = 'reconnecting...';
+            wsStatus.style.color = 'var(--warning)';
+            reconnectTimer = setTimeout(connect, 5000);
+        };
+        ws.onerror = () => {};
+        ws.onmessage = (e) => {
+            try { render(JSON.parse(e.data)); } catch(err) {}
+        };
+    }
+
+    function render(state) {
+        const matches = state.matches || [];
+        // Show only matches where we have a bet OR all live
+        const relevant = matches;
+
+        if (relevant.length === 0) {
+            section.style.display = 'none';
+            return;
+        }
+        section.style.display = '';
+        const withBet = relevant.filter(m => m.has_bet).length;
+        countEl.textContent = `${relevant.length} LIVE` + (withBet ? ` · ${withBet} BET` : '');
+
+        let html = '';
+        for (const m of relevant) {
+            const hasBet = m.has_bet;
+            const border = hasBet ? 'border-color:rgba(255,113,108,0.5)' : '';
+            const p1Leading = m.player1_sets > m.player2_sets;
+            const p2Leading = m.player2_sets > m.player1_sets;
+
+            html += `<div class="pulse-card" style="min-width:300px;${border}">
+                <div class="pulse-top">
+                    <div class="pulse-event">
+                        <span class="badge badge-live">LIVE</span>
+                        <span class="badge badge-tennis">${m.tour}</span>
+                        ${m.tournament ? m.tournament.slice(0, 18) : ''}
+                    </div>
+                    ${hasBet ? '<span class="badge" style="background:var(--error-bg);color:var(--error);font-size:9px">MY BET</span>' : ''}
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin:10px 0">
+                    <div style="flex:1">
+                        <div style="font-family:'Space Grotesk',sans-serif;font-size:15px;font-weight:${p1Leading?700:500};color:${p1Leading?'var(--text)':'var(--text-dim)'}">${m.player1}</div>
+                        <div style="font-family:'Space Grotesk',sans-serif;font-size:15px;font-weight:${p2Leading?700:500};color:${p2Leading?'var(--text)':'var(--text-dim)'}; margin-top:4px">${m.player2}</div>
+                    </div>
+                    <div style="text-align:right;min-width:60px">
+                        <div style="font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:700;color:${p1Leading?'var(--primary)':'var(--text-dim)'}">${m.player1_sets}</div>
+                        <div style="font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:700;color:${p2Leading?'var(--primary)':'var(--text-dim)'}">${m.player2_sets}</div>
+                    </div>
+                </div>
+                <div style="font-size:11px;color:var(--text-faint);font-family:'Space Grotesk',sans-serif;margin-bottom:8px">${m.score || ''}</div>
+                ${m.pm_p1_odds ? `<div style="display:flex;gap:8px;margin-bottom:4px">
+                    <div class="tennis-player" style="flex:1">
+                        <div class="name">${m.player1.split(' ').pop().slice(0,10)}</div>
+                        <div class="odds">${m.pm_p1_odds}</div>
+                    </div>
+                    <div class="tennis-player" style="flex:1">
+                        <div class="name">${m.player2.split(' ').pop().slice(0,10)}</div>
+                        <div class="odds">${m.pm_p2_odds}</div>
+                    </div>
+                </div>` : ''}
+                ${hasBet ? `<div style="font-size:10px;color:var(--error);font-family:'Manrope',sans-serif;font-weight:600">${m.bet_label} @ ${m.bet_odds} · $${m.bet_stake}</div>` : ''}
+            </div>`;
+        }
+        cards.innerHTML = html;
+    }
+
+    // Initial fetch via REST (faster than waiting for WS)
+    fetch('/api/live').then(r => r.json()).then(render).catch(() => {});
+    connect();
+})();
+
 function toggleExtra(id) {
     const el = document.getElementById(id);
     if (el) el.style.display = el.style.display === 'none' ? '' : 'none';

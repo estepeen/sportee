@@ -21,6 +21,7 @@ from src.tennis.picks_tracker import track_picks, resolve_picks, get_analytics
 from src.tennis.lucky_loser import get_ll_warnings_for_matches, check_ll_risk, get_open_fade_picks
 from src.tennis.doubles_sofascore import load_doubles_odds
 from src.tennis.doubles_model import load_doubles_model as _load_dbl_model, predict_doubles_match
+from src.tennis.live_tracker import get_live_state, get_cached_live
 
 app = FastAPI(title="Sportee")
 _tennis_model = None
@@ -1805,3 +1806,44 @@ async def api_resolve_all():
 @app.get("/api/sofascore-usage")
 async def sofascore_usage():
     return JSONResponse(ss_usage())
+
+
+# ─── Live Tracker (WebSocket + REST) ────────────────────────
+
+@app.get("/api/live")
+async def api_live():
+    """Get live matches with scores + odds. Polls SofaScore + Polymarket."""
+    try:
+        pending = [b for b in bet_manager.bets if b.get("status") == "pending"]
+        state = await get_live_state(pending_bets=pending)
+        return JSONResponse(state)
+    except Exception as e:
+        return JSONResponse({"matches": [], "error": str(e)})
+
+
+from starlette.websockets import WebSocket, WebSocketDisconnect
+
+_ws_clients: list[WebSocket] = []
+
+
+@app.websocket("/ws/live")
+async def ws_live(ws: WebSocket):
+    """WebSocket endpoint for live match updates. Pushes every 30s."""
+    await ws.accept()
+    _ws_clients.append(ws)
+    try:
+        while True:
+            pending = [b for b in bet_manager.bets if b.get("status") == "pending"]
+            state = await get_live_state(pending_bets=pending)
+            await ws.send_json(state)
+            await asyncio.sleep(30)
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        if ws in _ws_clients:
+            _ws_clients.remove(ws)
+
+
+import asyncio
