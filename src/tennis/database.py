@@ -106,6 +106,89 @@ def init_tennis_db():
     CREATE INDEX IF NOT EXISTS idx_tm_surface ON tennis_matches(surface);
     CREATE INDEX IF NOT EXISTS idx_tm_tournament ON tennis_matches(tournament);
     CREATE INDEX IF NOT EXISTS idx_tp_name ON tennis_players(name);
+
+    -- ═══ DOUBLES ═══
+
+    CREATE TABLE IF NOT EXISTS doubles_matches (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        tournament TEXT NOT NULL,
+        location TEXT DEFAULT '',
+        surface TEXT NOT NULL,           -- Hard, Clay, Grass, Carpet
+        indoor INTEGER DEFAULT 0,
+        round TEXT DEFAULT '',
+        best_of INTEGER DEFAULT 3,
+        series TEXT DEFAULT '',          -- Grand Slam, Masters 1000, etc.
+        tour TEXT DEFAULT 'ATP',         -- ATP, WTA
+        -- Winning team (2 players)
+        w_player1_id INTEGER REFERENCES tennis_players(id),
+        w_player2_id INTEGER REFERENCES tennis_players(id),
+        -- Losing team (2 players)
+        l_player1_id INTEGER REFERENCES tennis_players(id),
+        l_player2_id INTEGER REFERENCES tennis_players(id),
+        -- Rankings (team rank if available)
+        w_rank INTEGER DEFAULT 0,
+        l_rank INTEGER DEFAULT 0,
+        -- Score
+        score TEXT DEFAULT '',
+        w_sets INTEGER DEFAULT 0,
+        l_sets INTEGER DEFAULT 0,
+        w1 INTEGER, l1 INTEGER,
+        w2 INTEGER, l2 INTEGER,
+        w3 INTEGER, l3 INTEGER,
+        -- Match stats (aggregate per team)
+        w_aces INTEGER DEFAULT 0,
+        l_aces INTEGER DEFAULT 0,
+        w_df INTEGER DEFAULT 0,
+        l_df INTEGER DEFAULT 0,
+        w_svpt INTEGER DEFAULT 0,
+        l_svpt INTEGER DEFAULT 0,
+        w_1st_in INTEGER DEFAULT 0,
+        l_1st_in INTEGER DEFAULT 0,
+        w_1st_won INTEGER DEFAULT 0,
+        l_1st_won INTEGER DEFAULT 0,
+        w_2nd_won INTEGER DEFAULT 0,
+        l_2nd_won INTEGER DEFAULT 0,
+        w_bp_saved INTEGER DEFAULT 0,
+        l_bp_saved INTEGER DEFAULT 0,
+        w_bp_faced INTEGER DEFAULT 0,
+        l_bp_faced INTEGER DEFAULT 0,
+        -- Betting odds
+        b365_w REAL DEFAULT 0,
+        b365_l REAL DEFAULT 0,
+        comment TEXT DEFAULT '',
+        UNIQUE(date, w_player1_id, w_player2_id, l_player1_id, l_player2_id, tournament, round)
+    );
+
+    -- Doubles Elo: individual player doubles Elo + pair Elo
+    CREATE TABLE IF NOT EXISTS doubles_elo (
+        player_id INTEGER REFERENCES tennis_players(id),
+        elo_type TEXT NOT NULL,          -- doubles_global, doubles_hard, doubles_clay, doubles_grass
+        elo REAL DEFAULT 1500,
+        matches INTEGER DEFAULT 0,
+        last_updated TEXT DEFAULT '',
+        PRIMARY KEY (player_id, elo_type)
+    );
+
+    -- Pair Elo: specific pair synergy rating
+    CREATE TABLE IF NOT EXISTS doubles_pair_elo (
+        player1_id INTEGER REFERENCES tennis_players(id),
+        player2_id INTEGER REFERENCES tennis_players(id),
+        elo_type TEXT NOT NULL,          -- pair_global, pair_hard, pair_clay, pair_grass
+        elo REAL DEFAULT 1500,
+        matches INTEGER DEFAULT 0,
+        last_updated TEXT DEFAULT '',
+        PRIMARY KEY (player1_id, player2_id, elo_type)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_dm_date ON doubles_matches(date);
+    CREATE INDEX IF NOT EXISTS idx_dm_wp1 ON doubles_matches(w_player1_id);
+    CREATE INDEX IF NOT EXISTS idx_dm_wp2 ON doubles_matches(w_player2_id);
+    CREATE INDEX IF NOT EXISTS idx_dm_lp1 ON doubles_matches(l_player1_id);
+    CREATE INDEX IF NOT EXISTS idx_dm_lp2 ON doubles_matches(l_player2_id);
+    CREATE INDEX IF NOT EXISTS idx_dm_surface ON doubles_matches(surface);
+    CREATE INDEX IF NOT EXISTS idx_de_player ON doubles_elo(player_id);
+    CREATE INDEX IF NOT EXISTS idx_dpe_pair ON doubles_pair_elo(player1_id, player2_id);
     """)
     conn.commit()
     conn.close()
