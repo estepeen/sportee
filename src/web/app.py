@@ -80,19 +80,26 @@ def _recompute_cache():
         upcoming = [m for m in all_matches if not m.get("is_live") and m.get("date", today) >= today]
 
         upcoming = _enrich_with_predictions(upcoming)
+
+        # Tag match_type on singles
+        for m in upcoming:
+            m["match_type"] = "singles"
+
         picks = _generate_smart_picks(upcoming)
         value_bets = _generate_value_bets(upcoming)
 
+        # Tag source + match_type
+        for p in picks:
+            p["source"] = "ai_picks"
+            p["match_type"] = "singles"
+        for v in value_bets:
+            v["source"] = "value_bets"
+            v["match_type"] = "singles"
+
         # Track picks for analytics + auto-add to My Positions
         try:
-            # Tag source before merging
-            for p in picks[:8]:
-                p["source"] = "ai_picks"
-            for v in value_bets:
-                v["source"] = "value_bets"
             track_picks(picks[:8], source="ai_picks")
             track_picks(value_bets, source="value_bets")
-            # Reload from disk before adding new picks (preserve manual W/L changes)
             bet_manager.load()
             _auto_record_all_picks(picks[:8] + value_bets)
         except Exception:
@@ -104,6 +111,8 @@ def _recompute_cache():
             "picks": picks[:8],
             "value_bets": value_bets,
             "doubles": [],
+            "doubles_picks": [],
+            "doubles_value": [],
             "updated": datetime.now().isoformat(),
         }
     except Exception as e:
@@ -114,7 +123,35 @@ def _recompute_cache():
     try:
         doubles_matches = load_doubles_odds()
         doubles_matches = _enrich_doubles_with_predictions(doubles_matches)
+        for m in doubles_matches:
+            m["match_type"] = "doubles"
+            # Map team names to player1/player2 for compatibility with smart picks
+            m.setdefault("player1", m.get("team1_name", ""))
+            m.setdefault("player2", m.get("team2_name", ""))
         _predictions_cache["doubles"] = doubles_matches
+
+        # Generate doubles picks + value bets (same rules as singles)
+        dbl_picks = _generate_smart_picks(doubles_matches)
+        dbl_value = _generate_value_bets(doubles_matches)
+        for p in dbl_picks:
+            p["source"] = "ai_picks"
+            p["match_type"] = "doubles"
+        for v in dbl_value:
+            v["source"] = "value_bets"
+            v["match_type"] = "doubles"
+
+        _predictions_cache["doubles_picks"] = dbl_picks[:5]
+        _predictions_cache["doubles_value"] = dbl_value
+
+        # Auto-record doubles picks
+        try:
+            track_picks(dbl_picks[:5], source="ai_picks_doubles")
+            track_picks(dbl_value, source="value_bets_doubles")
+            bet_manager.load()
+            _auto_record_all_picks(dbl_picks[:5] + dbl_value)
+        except Exception:
+            pass
+
     except Exception as e:
         logging.getLogger(__name__).error(f"Doubles cache failed: {e}")
 
@@ -146,6 +183,14 @@ async def dashboard(request: Request):
         threading.Thread(target=_recompute_cache, daemon=True).start()
 
     doubles = _predictions_cache.get("doubles", [])
+    dbl_picks = _predictions_cache.get("doubles_picks", [])
+    dbl_value = _predictions_cache.get("doubles_value", [])
+
+    # Merge singles + doubles picks
+    all_picks = top_picks + dbl_picks
+    all_picks.sort(key=lambda x: (-x.get("stars", 0), -x.get("confidence", 0)))
+    all_value = value_bets + dbl_value
+    all_value.sort(key=lambda x: -x.get("edge", 0))
 
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
@@ -155,8 +200,8 @@ async def dashboard(request: Request):
         "all_tennis_matches": all_matches,
         "doubles_matches": doubles,
         "recent_bets": recent_bets,
-        "top_picks": top_picks,
-        "value_bets": value_bets,
+        "top_picks": all_picks,
+        "value_bets": all_value,
         "sofascore_usage": ss_usage(),
     })
 
@@ -839,12 +884,26 @@ def _auto_record_all_picks(all_picks: list):
                 if pm_url:
                     b["pm_url"] = pm_url
                 b["source"] = source
+                b["match_type"] = p.get("match_type", "singles")
                 if rnd:
                     b["round"] = rnd
                 if match_date:
                     b["created_at"] = match_date if "T" in match_date else f"{match_date}T12:00:00"
                 if p.get("reason"):
                     b["reason"] = p["reason"]
+                # Log bet metadata for analytics
+                b["bet_meta"] = {
+                    "ml_prob": p.get("ml_prob", 0),
+                    "mkt_prob": p.get("mkt_prob", 0),
+                    "edge": p.get("edge", 0),
+                    "confidence": p.get("confidence") or p.get("stars", 0),
+                    "tournament": p.get("tournament", ""),
+                    "tour": p.get("tour", ""),
+                    "round": rnd,
+                    "bet_type": p.get("bet_type", "WIN"),
+                    "match_type": p.get("match_type", "singles"),
+                    "surface": p.get("surface", ""),
+                }
                 break
         bet_manager.bankroll -= stake
 
@@ -1137,7 +1196,7 @@ def _build_analytics_from_bets() -> dict:
 # ─── History ──────────────────────────────────────────────
 
 @app.get("/history", response_class=HTMLResponse)
-async def history_page(request: Request, page: int = 1, status: str = "", tour: str = "", q: str = ""):
+async def history_page(request: Request, page: int = 1, status: str = "", tour: str = "", q: str = "", type: str = ""):
     bet_manager.load()
     bet_stats = bet_manager.get_stats()
     # History = only resolved (won, lost, void) - no pending
@@ -1150,6 +1209,8 @@ async def history_page(request: Request, page: int = 1, status: str = "", tour: 
     # Server-side filters
     if status:
         all_bets = [b for b in all_bets if b.get("status") == status]
+    if type:
+        all_bets = [b for b in all_bets if b.get("match_type", "singles") == type]
     if tour:
         all_bets = [b for b in all_bets if tour.lower() in (b.get("event", "") or "").lower()]
     if q:
@@ -1174,6 +1235,7 @@ async def history_page(request: Request, page: int = 1, status: str = "", tour: 
         "total_bets": len(all_bets),
         "filter_status": status,
         "filter_tour": tour,
+        "filter_type": type,
         "filter_q": q,
     })
 

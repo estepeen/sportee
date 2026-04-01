@@ -190,7 +190,7 @@
         <span class="badge" style="background:#1a472a;color:#4ade80">{{ top_picks|length }} PLAYS</span>
     </div>
     <div class="tbl-wrap"><table class="tbl paged-tbl">
-        <thead><tr><th>Conf.</th><th>Play</th><th>Type</th><th>Match</th><th>AI</th><th>Market</th><th>Edge</th><th>Odds</th><th>Stake</th><th></th></tr></thead>
+        <thead><tr><th>Conf.</th><th></th><th>Play</th><th>Type</th><th>Match</th><th>AI</th><th>Market</th><th>Edge</th><th>Odds</th><th>Stake</th><th></th></tr></thead>
         <tbody>
         {% for p in top_picks %}
         <tr style="{% if p.status == 'WIN' %}background:rgba(74,222,128,0.05){% elif p.status == 'LOSS' %}background:rgba(239,68,68,0.05){% endif %}">
@@ -199,11 +199,16 @@
                 {% elif p.stars >= 2 %}<span style="background:#3b2f1e;color:#f59e0b;font-weight:700;font-size:11px;padding:4px 10px;border-radius:4px;font-family:'Manrope',sans-serif">MED</span>
                 {% else %}<span style="background:var(--surface-highest);color:var(--text-faint);font-size:11px;padding:4px 10px;border-radius:4px;font-family:'Manrope',sans-serif">LOW</span>{% endif %}
             </td>
+            <td>
+                {% if p.match_type == 'doubles' %}<span class="badge" style="background:#1e3a5f;color:#60a5fa;font-size:8px">DBL</span>
+                {% else %}<span class="badge" style="background:var(--surface-highest);color:var(--text-muted);font-size:8px">SGL</span>{% endif %}
+            </td>
             <td><span style="font-weight:700;color:var(--text)">{{ p.pick }}</span></td>
             <td>
                 {% if p.bet_type == 'WIN' %}<span class="badge" style="background:var(--tertiary-bg);color:var(--tertiary);font-size:9px">WIN</span>
                 {% elif p.bet_type == '+1.5 SETS' %}<span class="badge" style="background:#1e3a5f;color:#60a5fa;font-size:9px">+1.5 SETS</span>
                 {% elif p.bet_type == 'TOTAL' %}<span class="badge" style="background:#3b2f1e;color:#f59e0b;font-size:9px">TOTAL</span>
+                {% elif p.bet_type == 'LL_FADE' %}<span class="badge" style="background:#2a0f0f;color:var(--error);font-size:9px">LL FADE</span>
                 {% endif %}
             </td>
             <td>
@@ -230,7 +235,7 @@
         <span class="badge" style="background:#3b2f1e;color:#f59e0b">{{ value_bets|length }} VALUE</span>
     </div>
     <div class="tbl-wrap"><table class="tbl paged-tbl">
-        <thead><tr><th>Conf.</th><th>Play</th><th>Type</th><th>Match</th><th>AI</th><th>Market</th><th>Edge</th><th>Odds</th><th></th></tr></thead>
+        <thead><tr><th>Conf.</th><th></th><th>Play</th><th>Type</th><th>Match</th><th>AI</th><th>Market</th><th>Edge</th><th>Odds</th><th></th></tr></thead>
         <tbody>
         {% for v in value_bets %}
         <tr style="{% if v.status == 'WIN' %}background:rgba(74,222,128,0.05){% elif v.status == 'LOSS' %}background:rgba(239,68,68,0.05){% endif %}">
@@ -238,6 +243,10 @@
                 {% if v.confidence == 'HIGH' %}<span style="background:var(--primary-bg);color:#4ade80;font-weight:700;font-size:11px;padding:4px 10px;border-radius:4px;font-family:'Manrope',sans-serif">HIGH</span>
                 {% elif v.confidence == 'MEDIUM' %}<span style="background:#3b2f1e;color:#f59e0b;font-weight:700;font-size:11px;padding:4px 10px;border-radius:4px;font-family:'Manrope',sans-serif">MED</span>
                 {% else %}<span style="background:var(--surface-highest);color:var(--text-faint);font-size:11px;padding:4px 10px;border-radius:4px;font-family:'Manrope',sans-serif">LOW</span>{% endif %}
+            </td>
+            <td>
+                {% if v.match_type == 'doubles' %}<span class="badge" style="background:#1e3a5f;color:#60a5fa;font-size:8px">DBL</span>
+                {% else %}<span class="badge" style="background:var(--surface-highest);color:var(--text-muted);font-size:8px">SGL</span>{% endif %}
             </td>
             <td><span style="font-weight:700;color:var(--text)">{{ v.pick }}</span></td>
             <td>
