@@ -52,30 +52,45 @@ def _get_or_create_player(conn, name: str) -> int:
     return conn.execute("SELECT id FROM tennis_players WHERE name = ?", (name,)).fetchone()["id"]
 
 
-def _parse_doubles_team(team: dict) -> tuple[str, str]:
-    """Parse SofaScore doubles team into two player names.
+def _surname(full_name: str) -> str:
+    """Extract surname from 'Marcel Granollers' -> 'Granollers' or 'Granollers M.' -> 'Granollers'."""
+    name = full_name.strip().replace(".", "").strip()
+    parts = name.split()
+    if not parts:
+        return name
+    # If last part is single char (initial), surname is second-to-last
+    if len(parts) >= 2 and len(parts[-1]) <= 2:
+        return parts[0]  # "Granollers M" -> "Granollers"
+    # Normal: "Marcel Granollers" -> last word
+    return parts[-1] if len(parts[-1]) >= 3 else parts[0]
 
-    SofaScore returns doubles teams as:
-    - team.name = "Bopanna E. / Ebden M." or "Bopanna/Ebden"
-    - or team has subTeams with individual players
+
+def _parse_doubles_team(team: dict) -> tuple[str, str, str]:
+    """Parse SofaScore doubles team into (db_name1, db_name2, display_name).
+
+    Returns:
+        (p1_db_name, p2_db_name, "Surname1/Surname2")
     """
     name = team.get("name", "")
 
-    # Check for subTeams first (some events have them)
+    # Check for subTeams first
     sub_teams = team.get("subTeams", [])
     if len(sub_teams) >= 2:
-        p1 = sub_teams[0].get("name", "")
-        p2 = sub_teams[1].get("name", "")
-        if p1 and p2:
-            return _sofascore_name_to_db(p1), _sofascore_name_to_db(p2)
+        p1_raw = sub_teams[0].get("name", "")
+        p2_raw = sub_teams[1].get("name", "")
+        if p1_raw and p2_raw:
+            display = f"{_surname(p1_raw)}/{_surname(p2_raw)}"
+            return _sofascore_name_to_db(p1_raw), _sofascore_name_to_db(p2_raw), display
 
     # Parse "Player1 / Player2" format
     if "/" in name:
         parts = name.split("/")
         if len(parts) >= 2:
-            return _sofascore_name_to_db(parts[0].strip()), _sofascore_name_to_db(parts[1].strip())
+            p1_raw, p2_raw = parts[0].strip(), parts[1].strip()
+            display = f"{_surname(p1_raw)}/{_surname(p2_raw)}"
+            return _sofascore_name_to_db(p1_raw), _sofascore_name_to_db(p2_raw), display
 
-    return "", ""
+    return "", "", ""
 
 
 async def import_doubles_recent(days: int = 10):
@@ -118,8 +133,8 @@ async def import_doubles_recent(days: int = 10):
                     home = ev.get("homeTeam", {})
                     away = ev.get("awayTeam", {})
 
-                    h_p1, h_p2 = _parse_doubles_team(home)
-                    a_p1, a_p2 = _parse_doubles_team(away)
+                    h_p1, h_p2, h_display = _parse_doubles_team(home)
+                    a_p1, a_p2, a_display = _parse_doubles_team(away)
                     if not h_p1 or not h_p2 or not a_p1 or not a_p2:
                         continue
 
@@ -316,8 +331,8 @@ async def fetch_doubles_upcoming_with_odds(days: int = 2) -> list[dict]:
 
                 home = ev.get("homeTeam", {})
                 away = ev.get("awayTeam", {})
-                h_p1, h_p2 = _parse_doubles_team(home)
-                a_p1, a_p2 = _parse_doubles_team(away)
+                h_p1, h_p2, h_display = _parse_doubles_team(home)
+                a_p1, a_p2, a_display = _parse_doubles_team(away)
                 if not h_p1 or not h_p2 or not a_p1 or not a_p2:
                     continue
 
@@ -338,8 +353,8 @@ async def fetch_doubles_upcoming_with_odds(days: int = 2) -> list[dict]:
                     "round": ev.get("round", {}).get("name", ""),
                     "team1_p1": h_p1, "team1_p2": h_p2,
                     "team2_p1": a_p1, "team2_p2": a_p2,
-                    "team1_name": f"{h_p1} / {h_p2}",
-                    "team2_name": f"{a_p1} / {a_p2}",
+                    "team1_name": h_display,
+                    "team2_name": a_display,
                     "match_type": "doubles",
                 })
 
@@ -415,9 +430,12 @@ def load_doubles_odds() -> list[dict]:
         if t1_odds <= 1 or t2_odds <= 1:
             continue
 
+        ss_id = m.get("sofascore_id", "")
         matches.append({
             "source": "sofascore",
             "match_type": "doubles",
+            "sofascore_id": ss_id,
+            "sofascore_url": f"https://www.sofascore.com/tennis/match/-#id:{ss_id}" if ss_id else "",
             "tournament": m.get("tournament", ""),
             "tour": m.get("tour", ""),
             "round": m.get("round", ""),
