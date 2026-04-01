@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Active Bets - Sportee{% endblock %}
+
+{% block content %}
+<div class="page-title">Active Bets <span class="badge badge-live">{{ pending_bets|length }} OPEN</span></div>
+
+<div class="stat-row">
+    <div class="stat-card stat-card-glow">
+        <div class="stat-label">Total Exposure</div>
+        <div class="stat-value">${{ bet_stats.pending_exposure|default(0) }}</div>
+        <div class="stat-sub">{{ pending_bets|length }} open positions</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Bankroll</div>
+        <div class="stat-value">${{ bet_stats.bankroll|default(1000)|round(2) }}</div>
+        <div class="stat-sub">Available capital</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Win Rate</div>
+        <div class="stat-value {% if (bet_stats.winrate|default(0)) >= 55 %}green{% elif (bet_stats.winrate|default(0)) >= 45 %}amber{% endif %}">{{ bet_stats.winrate|default(0) }}%</div>
+        <div class="stat-sub">{{ bet_stats.wins|default(0) }}W / {{ bet_stats.losses|default(0) }}L</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Profit</div>
+        <div class="stat-value {% if (bet_stats.total_profit|default(0)) >= 0 %}green{% else %}red{% endif %}">${{ bet_stats.total_profit|default(0) }}</div>
+        <div class="stat-sub">ROI: {{ bet_stats.roi|default(0) }}%</div>
+    </div>
+</div>
+
+<div class="section">
+    <div class="section-header">
+        <div class="section-title">Pending Positions</div>
+        <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn btn-primary btn-sm" onclick="resolveAll()" id="resolve-all-btn">Resolve All</button>
+            <span class="badge">{{ pending_bets|length }}</span>
+        </div>
+    </div>
+
+    <!-- Search + Filters -->
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+        <form action="/active-bets" method="get" style="display:flex;gap:4px">
+            <input type="text" name="q" value="{{ filter_q or '' }}" placeholder="Search player..." style="background:var(--surface);border:1px solid var(--border-dim);border-radius:6px;padding:5px 10px;color:var(--text);font-size:12px;width:140px;font-family:'Inter',sans-serif">
+            {% if filter_tour %}<input type="hidden" name="tour" value="{{ filter_tour }}">{% endif %}
+            <button type="submit" class="pager-btn" style="padding:5px 10px">Go</button>
+            {% if filter_q %}<a href="/active-bets{% if filter_tour %}?tour={{ filter_tour }}{% endif %}" class="pager-btn" style="padding:5px 8px;color:var(--error)">X</a>{% endif %}
+        </form>
+        <span style="width:1px;background:var(--border);height:20px"></span>
+        <a href="/active-bets" class="pager-btn {% if not filter_tour %}active{% endif %}">All</a>
+        <a href="/active-bets?tour=miami{% if filter_q %}&q={{ filter_q }}{% endif %}" class="pager-btn {% if filter_tour == 'miami' %}active{% endif %}">Miami</a>
+        <a href="/active-bets?tour=houston{% if filter_q %}&q={{ filter_q }}{% endif %}" class="pager-btn {% if filter_tour == 'houston' %}active{% endif %}">Houston</a>
+        <a href="/active-bets?tour=challenger{% if filter_q %}&q={{ filter_q }}{% endif %}" class="pager-btn {% if filter_tour == 'challenger' %}active{% endif %}">Challenger</a>
+    </div>
+
+    <div class="tbl-wrap"><table class="tbl paged-tbl">
+        <thead>
+            <tr>
+                <th>Match / Market</th>
+                <th>Event</th>
+                <th>Odds</th>
+                <th>Stake</th>
+                <th>Date</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for b in pending_bets %}
+        <tr>
+            <td>
+                <div style="font-weight:700;color:#4ade80;font-family:'Space Grotesk',sans-serif;display:flex;align-items:center;gap:6px">
+                    {{ b.market_label }}
+                    {% if b.reason %}<span style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:var(--surface-highest);color:var(--text-faint);font-size:10px;cursor:help;flex-shrink:0" title="{{ b.reason }}">i</span>{% endif %}
+                </div>
+                <div class="sub">{% if b.pm_url %}<a href="{{ b.pm_url }}" target="_blank" style="color:var(--text);text-decoration:none;font-weight:500" onmouseover="this.style.textDecoration='underline';this.style.color='var(--tertiary)'" onmouseout="this.style.textDecoration='none';this.style.color='var(--text)'">{{ b.team1_name }} vs {{ b.team2_name }}</a>{% else %}<span style="color:var(--text)">{{ b.team1_name }} vs {{ b.team2_name }}</span>{% endif %}</div>
+            </td>
+            <td>
+                <span style="color:var(--text);font-weight:600;font-size:12px">{{ b.event[:25] if b.event else '-' }}</span>
+                {% if b.round %}<br><span style="color:var(--warning);font-size:10px">{{ b.round }}</span>{% endif %}
+            </td>
+            <td><span class="mono" style="font-weight:700;color:var(--tertiary)">{{ b.our_odds }}</span></td>
+            <td class="mono">${{ b.stake }}</td>
+            <td>
+                <span style="color:var(--text);font-size:11px;font-family:'Space Grotesk',sans-serif">{{ b.created_at[:10] if b.created_at else '-' }}</span>
+                {% if b.created_at and b.created_at|length > 11 %}<br><span style="color:var(--text-dim);font-size:10px">{{ b.created_at[11:16] }} UTC</span>{% endif %}
+            </td>
+            <td>
+                <div style="display:flex;gap:3px">
+                    <button class="btn btn-primary btn-sm" onclick="resolveBet('{{ b.id }}','won')">W</button>
+                    <button class="btn btn-danger btn-sm" onclick="resolveBet('{{ b.id }}','lost')">L</button>
+                    <button class="btn btn-secondary btn-sm" style="font-size:10px;padding:2px 6px" onclick="resolveBet('{{ b.id }}','void')">V</button>
+                    <button class="btn btn-secondary btn-sm" onclick="resolveSingle('{{ b.id }}', this)" style="font-size:10px;padding:2px 6px;color:var(--tertiary)" title="Check SofaScore">R</button>
+                    <button class="btn btn-secondary btn-sm" onclick="deleteBet('{{ b.id }}')" style="font-size:10px;padding:2px 6px;color:var(--error)">X</button>
+                </div>
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+    {% if not pending_bets %}
+    <div class="empty">No active bets. Place bets from the <a href="/" style="color:var(--tertiary)">Portfolio</a> page.</div>
+    {% endif %}
+</div>
+{% endblock %}

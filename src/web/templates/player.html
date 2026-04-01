@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+{% block title %}{{ p.name }} - Sportee{% endblock %}
+
+{% block extra_css %}
+<style>
+    .back { font-size: 12px; color: var(--text-muted); margin-bottom: 16px; display: inline-block; font-family: 'Manrope', sans-serif; }
+    .back:hover { color: var(--tertiary); }
+
+    .player-header { display: flex; align-items: flex-start; gap: 24px; margin-bottom: 24px; }
+    .player-info h1 { font-family: 'Space Grotesk', sans-serif; font-size: 28px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+    .player-meta { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--text-muted); font-family: 'Manrope', sans-serif; }
+    .player-meta .val { color: var(--text); font-weight: 600; }
+    .player-meta .elo-val { color: var(--tertiary); font-weight: 700; }
+    .player-tags { display: flex; gap: 6px; margin-top: 8px; }
+    .player-tag { padding: 3px 10px; border-radius: 4px; font-size: 10px; font-weight: 600; font-family: 'Manrope', sans-serif; }
+    .tag-hand { background: var(--surface-highest); color: var(--text-dim); }
+    .tag-style { background: var(--tertiary-bg); color: var(--tertiary); }
+    .tag-flag { background: var(--error-bg); color: var(--error); }
+    .tag-country { background: var(--surface-highest); color: var(--warning); }
+
+    .stats-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 20px; }
+    .mini-stat { background: var(--surface); border-radius: 8px; padding: 14px; text-align: center; }
+    .mini-stat .val { font-family: 'Space Grotesk', sans-serif; font-size: 22px; font-weight: 700; color: var(--text); }
+    .mini-stat .lbl { font-size: 10px; color: var(--text-faint); text-transform: uppercase; margin-top: 4px; font-family: 'Manrope', sans-serif; letter-spacing: 0.5px; }
+
+    .surfaces-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px; }
+    .surface-card { background: var(--surface); border-radius: 10px; padding: 16px; position: relative; overflow: hidden; }
+    .surface-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; }
+    .surface-card.hard::before { background: linear-gradient(90deg, #3b82f6, #60a5fa); }
+    .surface-card.clay::before { background: linear-gradient(90deg, #d97706, #f59e0b); }
+    .surface-card.grass::before { background: linear-gradient(90deg, #16a34a, #22c55e); }
+    .surface-card.indoor::before { background: linear-gradient(90deg, #8b5cf6, #a78bfa); }
+    .surface-name { font-family: 'Space Grotesk', sans-serif; font-size: 13px; font-weight: 700; color: var(--text); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+    .surface-record { font-size: 20px; font-weight: 700; color: var(--text); font-family: 'Space Grotesk', sans-serif; }
+    .surface-wr { font-size: 12px; font-weight: 600; margin-top: 2px; }
+    .surface-elo { font-size: 10px; color: var(--text-faint); margin-top: 4px; font-family: 'Manrope', sans-serif; }
+
+    .form-dots { display: flex; gap: 4px; margin: 8px 0; }
+    .form-dot { width: 24px; height: 24px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; font-family: 'Manrope', sans-serif; }
+    .form-dot.w { background: var(--primary-bg); color: var(--primary); }
+    .form-dot.l { background: var(--error-bg); color: var(--error); }
+
+    .h2h-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; font-size: 13px; }
+    .h2h-row + .h2h-row { border-top: 1px solid var(--border-dim); }
+    .h2h-opp { flex: 1; font-weight: 600; color: var(--text); }
+    .h2h-score { font-family: 'Space Grotesk', sans-serif; font-weight: 700; min-width: 50px; text-align: center; }
+
+    .match-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; font-size: 12px; }
+    .match-row + .match-row { border-top: 1px solid var(--border-dim); }
+    .match-result { width: 22px; height: 22px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0; }
+    .match-result.w { background: var(--primary-bg); color: var(--primary); }
+    .match-result.l { background: var(--error-bg); color: var(--error); }
+    .match-date { font-size: 11px; color: var(--text-muted); min-width: 62px; font-variant-numeric: tabular-nums; font-family: 'Space Grotesk', sans-serif; flex-shrink: 0; }
+    .match-opp { flex: 1; font-weight: 600; color: var(--text); }
+    .match-opp a { color: var(--text); text-decoration: none; }
+    .match-opp a:hover { color: var(--tertiary); }
+    .match-score-text { color: var(--text-dim); min-width: 80px; font-family: 'Space Grotesk', sans-serif; font-weight: 500; }
+    .match-tournament { color: var(--tertiary); font-size: 11px; font-weight: 600; font-family: 'Manrope', sans-serif; min-width: 100px; text-align: right; }
+    .match-round { color: var(--warning); font-size: 10px; font-weight: 600; font-family: 'Manrope', sans-serif; min-width: 60px; text-align: right; }
+    .match-surface-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .match-surface-dot.hard { background: #3b82f6; }
+    .match-surface-dot.clay { background: #f59e0b; }
+    .match-surface-dot.grass { background: #22c55e; }
+    .match-surface-dot.indoor { background: #a78bfa; }
+
+    .tourn-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 12px; }
+    .tourn-row + .tourn-row { border-top: 1px solid var(--border-dim); }
+    .tourn-name { flex: 1; font-weight: 500; color: var(--text-dim); }
+    .tourn-best { font-weight: 700; color: var(--tertiary); min-width: 40px; }
+    .tourn-years { color: var(--text-faint); font-size: 11px; font-family: 'Manrope', sans-serif; }
+
+    .season-row { display: flex; align-items: center; gap: 12px; padding: 6px 0; font-size: 13px; }
+    .season-row + .season-row { border-top: 1px solid var(--border-dim); }
+    .season-year { font-family: 'Space Grotesk', sans-serif; font-weight: 700; color: var(--text); min-width: 40px; }
+    .season-record { font-weight: 600; color: var(--text-dim); }
+    .season-bar { flex: 1; height: 4px; background: var(--surface-highest); border-radius: 2px; overflow: hidden; }
+    .season-bar-fill { height: 100%; border-radius: 2px; background: var(--tertiary); }
+
+    @media(max-width:900px) { .stats-grid { grid-template-columns: repeat(3, 1fr); } .surfaces-grid { grid-template-columns: repeat(2, 1fr); } }
+</style>
+{% endblock %}
+
+{% block content %}
+<a href="/" class="back">&larr; Back to Dashboard</a>
+
+<!-- Player Header -->
+<div class="player-header">
+    <div class="player-info">
+        <h1>{{ p.name }}</h1>
+        <div class="player-meta">
+            {% if p.country %}<span class="tag-country player-tag">{{ p.country }}</span>{% endif %}
+            {% if p.age %}<span>Age: <span class="val">{{ p.age }}</span></span>{% endif %}
+            {% if p.height_cm %}<span>Height: <span class="val">{{ p.height_cm }}cm</span></span>{% endif %}
+            {% if p.rank %}<span>Rank: <span class="val">#{{ p.rank }}</span></span>{% endif %}
+            {% if p.elo.global %}<span>Elo: <span class="elo-val">{{ p.elo.global.elo }}</span></span>{% endif %}
+        </div>
+        <div class="player-tags">
+            <span class="player-tag tag-hand">{{ "Left-handed" if p.hand == "L" else "Right-handed" }}</span>
+            {% if p.style and p.style != 'universal' %}<span class="player-tag tag-style">{{ p.style|replace('_', ' ')|title }}</span>{% endif %}
+            {% if p.backhand == 'one' %}<span class="player-tag tag-hand">1H BH</span>{% endif %}
+            {% for f in p.flags %}<span class="player-tag tag-flag">{{ f.type|replace('_', ' ')|upper }}: {{ f.desc }}</span>{% endfor %}
+        </div>
+    </div>
+</div>
+
+<!-- Quick Stats -->
+<div class="stats-grid">
+    <div class="mini-stat">
+        <div class="val {% if p.career.winrate >= 60 %}green{% elif p.career.winrate >= 50 %}{% else %}red{% endif %}">{{ p.career.winrate }}%</div>
+        <div class="lbl">Career WR</div>
+    </div>
+    <div class="mini-stat">
+        <div class="val">{{ p.career.wins }}-{{ p.career.losses }}</div>
+        <div class="lbl">Career W-L</div>
+    </div>
+    <div class="mini-stat">
+        <div class="val {% if p.form5 >= 4 %}green{% elif p.form5 >= 3 %}amber{% else %}red{% endif %}">{{ p.form5 }}/5</div>
+        <div class="lbl">Form (5)</div>
+    </div>
+    <div class="mini-stat">
+        <div class="val">{{ p.form10 }}/10</div>
+        <div class="lbl">Form (10)</div>
+    </div>
+    <div class="mini-stat">
+        <div class="val {% if p.streak > 0 %}green{% elif p.streak < 0 %}red{% endif %}">{% if p.streak > 0 %}W{{ p.streak }}{% elif p.streak < 0 %}L{{ -p.streak }}{% else %}-{% endif %}</div>
+        <div class="lbl">Streak</div>
+    </div>
+    <div class="mini-stat">
+        <div class="val" style="color:var(--tertiary)">#{{ p.rank or '-' }}</div>
+        <div class="lbl">Ranking</div>
+    </div>
+</div>
+
+<!-- Surface Records -->
+<div class="surfaces-grid">
+    {% for surface, data in p.surfaces.items() %}
+    <div class="surface-card {{ surface|lower }}">
+        <div class="surface-name">{{ surface }}</div>
+        <div class="surface-record">{{ data.wins }}-{{ data.losses }}</div>
+        <div class="surface-wr {% if data.winrate >= 60 %}green{% elif data.winrate >= 50 %}{% else %}red{% endif %}">{{ data.winrate }}%</div>
+        <div class="surface-elo">Elo: {{ data.elo }}</div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Match History (full width) -->
+    <div class="section mb-16">
+        <div class="section-header">
+            <div class="section-title">Match History</div>
+            <span class="badge">{{ p.form20 }}/{{ p.recent|length }}</span>
+        </div>
+        <div class="form-dots">
+            {% for m in p.recent[:20] %}
+            <div class="form-dot {% if m.won %}w{% else %}l{% endif %}" title="{{ m.date }} {{ m.opponent }} ({{ m.tournament }})">
+                {% if m.won %}W{% else %}L{% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% for m in p.recent[:20] %}
+        <div class="match-row">
+            <div class="match-result {% if m.won %}w{% else %}l{% endif %}">{% if m.won %}W{% else %}L{% endif %}</div>
+            <div class="match-date">{{ m.date[5:] if m.date else '' }}</div>
+            <span class="match-surface-dot {{ (m.surface or 'hard')|lower }}"></span>
+            <div class="match-opp"><a href="{{ m.opponent|player_url(tour) }}">vs {{ m.opponent }}</a></div>
+            <div class="match-score-text">{{ m.score[:20] if m.score else '' }}</div>
+            <div class="match-tournament">{{ m.tournament[:22] if m.tournament else '' }}</div>
+            <div class="match-round">{{ m.round if m.round else '' }}</div>
+        </div>
+        {% endfor %}
+    </div>
+
+<div class="grid-2-equal">
+    <!-- Season Records -->
+    <div class="section mb-16">
+        <div class="section-header">
+            <div class="section-title">Season Records</div>
+        </div>
+        {% for year, data in p.seasons.items() %}
+        <div class="season-row">
+            <div class="season-year">{{ year }}</div>
+            <div class="season-record">{{ data.wins }}W-{{ data.losses }}L ({{ data.winrate }}%)</div>
+            <div class="season-bar"><div class="season-bar-fill" style="width:{{ data.winrate }}%"></div></div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- H2H -->
+    <div class="section mb-16">
+        <div class="section-header">
+            <div class="section-title">Head to Head</div>
+        </div>
+        {% for h in p.h2h %}
+        <div class="h2h-row">
+            <a href="{{ h.opponent|player_url(tour) }}" class="h2h-opp">{{ h.opponent }}</a>
+            <div class="h2h-score {% if h.wins > h.losses %}green{% elif h.wins < h.losses %}red{% endif %}">{{ h.wins }}-{{ h.losses }}</div>
+            <span class="badge">{{ h.total }}</span>
+        </div>
+        {% endfor %}
+        {% if not p.h2h %}
+        <div class="empty">No H2H data</div>
+        {% endif %}
+    </div>
+
+    <!-- Tournament History -->
+    <div class="section mb-16">
+        <div class="section-header">
+            <div class="section-title">Tournament History</div>
+        </div>
+        {% for t in p.tournaments[:12] %}
+        <div class="tourn-row">
+            <div class="tourn-name">{{ t.name }}</div>
+            <div class="tourn-best">{{ t.best }}</div>
+            <div class="tourn-years">{{ t.years|join(', ') }} ({{ t.appearances }}x)</div>
+        </div>
+        {% endfor %}
+        {% if not p.tournaments %}
+        <div class="empty">No major tournament data</div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

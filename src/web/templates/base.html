@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Sportee{% endblock %}</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎾</text></svg>">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&family=Manrope:wght@400;500;600;700&display=swap');
+
+        :root {
+            --bg: #0c0e12;
+            --surface: #252935;
+            --surface-high: #2d3240;
+            --surface-highest: #353a4a;
+            --border: #1e2030;
+            --border-dim: #16181f;
+            --text: #f6f6fc;
+            --text-dim: #aaabb0;
+            --text-muted: #6b7280;
+            --text-faint: #484f58;
+            --primary: #A2FF00;
+            --primary-dim: #8adb00;
+            --primary-bg: #162200;
+            --tertiary: #BF5AF2;
+            --tertiary-bg: #2a1540;
+            --error: #ff716c;
+            --error-bg: #2a0f0f;
+            --warning: #f59e0b;
+            --blue: #60a5fa;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: var(--bg); color: var(--text-dim); font-family: 'Inter', sans-serif; font-size: 13px; min-height: 100vh; }
+        a { color: var(--text-dim); text-decoration: none; } a:hover { color: var(--text); }
+
+        .nav { display: flex; align-items: center; justify-content: space-between; padding: 0 28px; height: 56px; background: var(--surface); border-bottom: 1px solid var(--border-dim); position: sticky; top: 0; z-index: 100; backdrop-filter: blur(12px); }
+        .nav-left { display: flex; align-items: center; gap: 36px; }
+        .logo { font-family: 'Space Grotesk', sans-serif; font-size: 17px; font-weight: 700; color: var(--text); letter-spacing: -0.5px; }
+        .logo span { color: var(--primary); }
+        .nav-tabs { display: flex; gap: 4px; }
+        .nav-tabs a { padding: 7px 16px; border-radius: 6px; font-size: 12px; font-weight: 500; color: var(--text-muted); transition: all .15s; font-family: 'Manrope', sans-serif; }
+        .nav-tabs a:hover { color: var(--text-dim); background: var(--surface-high); }
+        .nav-tabs a.active { color: var(--primary); background: var(--primary-bg); }
+        .nav-right { display: flex; align-items: center; gap: 18px; }
+        .nav-balance { font-family: 'Space Grotesk', sans-serif; font-size: 20px; font-weight: 700; color: var(--text); letter-spacing: -0.5px; }
+        .nav-balance-sub { font-size: 10px; color: var(--primary); text-align: right; font-weight: 600; font-family: 'Manrope', sans-serif; }
+        .nav-icons { display: flex; gap: 8px; }
+        .nav-icon { width: 34px; height: 34px; border-radius: 8px; background: var(--surface-high); display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-muted); font-size: 15px; transition: all .15s; }
+        .nav-icon:hover { background: var(--surface-highest); color: var(--text); }
+
+        .main { max-width: 1440px; margin: 0 auto; padding: 20px 28px; }
+
+        /* Cards & Sections */
+        .section { background: var(--surface); border-radius: 10px; padding: 18px 20px; }
+        .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+        .section-title { font-family: 'Space Grotesk', sans-serif; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-muted); display: flex; align-items: center; gap: 8px; }
+        .section-title .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); animation: pulse-dot 2s infinite; }
+        @keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+        .section-link { font-size: 11px; color: var(--text-muted); cursor: pointer; font-family: 'Manrope', sans-serif; }
+        .section-link:hover { color: var(--primary); }
+
+        /* Badges */
+        .badge { background: var(--surface-highest); color: var(--text-muted); font-size: 10px; font-weight: 600; padding: 3px 10px; border-radius: 4px; font-family: 'Manrope', sans-serif; display: inline-block; }
+        .badge-live { background: var(--primary-bg); color: var(--primary); }
+        .badge-tennis { background: var(--tertiary-bg); color: var(--tertiary); }
+        .badge-cs2 { background: var(--primary-bg); color: var(--primary); }
+        .badge-won { background: var(--primary-bg); color: var(--primary); }
+        .badge-lost { background: var(--error-bg); color: var(--error); }
+        .badge-pending { background: var(--surface-highest); color: var(--text-muted); }
+
+        /* Stat Cards */
+        .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+        .stat-card { background: var(--surface); border-radius: 10px; padding: 18px 22px; position: relative; overflow: hidden; transition: transform .15s; }
+        .stat-card:hover { transform: translateY(-1px); }
+        .stat-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, var(--border), transparent); }
+        .stat-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--text-faint); margin-bottom: 10px; font-family: 'Manrope', sans-serif; }
+        .stat-value { font-family: 'Space Grotesk', sans-serif; font-size: 30px; font-weight: 700; color: var(--text); letter-spacing: -1px; font-variant-numeric: tabular-nums; }
+        .stat-value.green { color: var(--primary); }
+        .stat-value.red { color: var(--error); }
+        .stat-value.amber { color: var(--warning); }
+        .stat-sub { font-size: 11px; color: var(--text-dim); margin-top: 6px; font-family: 'Manrope', sans-serif; }
+        .stat-card-glow::before { background: linear-gradient(90deg, transparent, rgba(162, 255, 0, 0.4), transparent); }
+
+        /* Tables */
+        .tbl-wrap { overflow-x: auto; }
+        .tbl-wrap::-webkit-scrollbar { height: 4px; }
+        .tbl-wrap::-webkit-scrollbar-track { background: transparent; }
+        .tbl-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+        .tbl { width: 100%; border-collapse: collapse; min-width: 600px; }
+        .tbl th { text-align: left; padding: 10px 12px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-faint); font-family: 'Manrope', sans-serif; white-space: nowrap; }
+        .tbl td { padding: 12px; font-size: 13px; }
+        .tbl tr { transition: background .1s; border-radius: 6px; }
+        .tbl tbody tr:hover { background: var(--surface-high); }
+        .tbl .name { font-weight: 600; color: var(--text); font-family: 'Space Grotesk', sans-serif; }
+        .tbl .sub { font-size: 10px; color: var(--text-faint); font-family: 'Manrope', sans-serif; margin-top: 2px; }
+        .tbl .mono { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); }
+        .pager { display: flex; gap: 6px; justify-content: center; margin-top: 10px; }
+        .pager-btn { background: var(--surface-highest); border: none; border-radius: 4px; padding: 4px 10px; color: var(--text-faint); font-size: 11px; cursor: pointer; font-family: 'Manrope', sans-serif; }
+        .pager-btn:hover { color: var(--text); background: var(--border); }
+        .pager-btn.active { color: var(--tertiary); background: var(--tertiary-bg); }
+
+        /* Status */
+        .status-live { color: var(--primary); font-weight: 700; font-size: 11px; display: inline-flex; align-items: center; gap: 4px; font-family: 'Manrope', sans-serif; }
+        .status-live::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--primary); animation: pulse-dot 1.5s infinite; }
+        .status-pending { color: var(--text-muted); font-weight: 600; font-size: 11px; font-family: 'Manrope', sans-serif; }
+        .status-won { color: var(--primary); font-weight: 700; font-size: 11px; font-family: 'Manrope', sans-serif; }
+        .status-lost { color: var(--error); font-weight: 700; font-size: 11px; font-family: 'Manrope', sans-serif; }
+
+        /* ROI bar */
+        .roi-bar { width: 70px; height: 3px; background: var(--surface-highest); border-radius: 2px; margin-top: 4px; overflow: hidden; }
+        .roi-bar-fill { height: 100%; border-radius: 2px; }
+
+        /* Buttons */
+        .btn { border: none; border-radius: 4px; padding: 6px 14px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Manrope', sans-serif; transition: all .15s; }
+        .btn-primary { background: var(--primary); color: #1a2600; }
+        .btn-primary:hover { background: var(--primary-dim); transform: translateY(-1px); }
+        .btn-secondary { background: var(--surface-highest); color: var(--text-dim); }
+        .btn-secondary:hover { background: var(--text-faint); color: var(--text); }
+        .btn-danger { background: var(--error-bg); color: var(--error); }
+        .btn-danger:hover { background: var(--error); color: #fff; }
+        .btn-sm { padding: 4px 10px; font-size: 10px; }
+        .btn-purple { background: var(--tertiary); color: #fff; }
+        .btn-purple:hover { filter: brightness(1.1); }
+
+        /* Grid layouts */
+        .grid-2 { display: grid; grid-template-columns: 1fr 360px; gap: 16px; margin-bottom: 16px; }
+        .grid-2-equal { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+
+        /* Tags */
+        .tag { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 8px; font-weight: 700; letter-spacing: 0.3px; font-family: 'Manrope', sans-serif; }
+        .tag-s, .tag-a { background: #2a2010; color: var(--warning); }
+        .tag-lan { background: var(--primary-bg); color: var(--primary); }
+        .tag-b, .tag-c, .tag-d { background: var(--surface-highest); color: var(--text-faint); }
+
+        /* Utility */
+        .green { color: var(--primary); }
+        .red { color: var(--error); }
+        .amber { color: var(--warning); }
+        .empty { color: var(--text-faint); text-align: center; padding: 28px; font-size: 12px; }
+        .mb-16 { margin-bottom: 16px; }
+        .page-title { font-family: 'Space Grotesk', sans-serif; font-size: 20px; font-weight: 700; color: var(--text); margin-bottom: 20px; }
+
+        /* Toast notifications */
+        .toast { position: fixed; bottom: 24px; right: 24px; background: var(--surface-highest); color: var(--text); padding: 12px 20px; border-radius: 8px; font-size: 13px; font-weight: 500; z-index: 1000; transform: translateY(100px); opacity: 0; transition: all .3s; }
+        .toast.show { transform: translateY(0); opacity: 1; }
+        .toast.success { border-left: 3px solid var(--primary); }
+        .toast.error { border-left: 3px solid var(--error); }
+
+        footer { text-align: center; padding: 20px; color: var(--border); font-size: 10px; letter-spacing: 0.5px; font-family: 'Manrope', sans-serif; }
+
+        @media(max-width:1100px) { .grid-2 { grid-template-columns: 1fr; } }
+        @media(max-width:900px) { .stat-row { grid-template-columns: repeat(2, 1fr); } .grid-2-equal { grid-template-columns: 1fr; } }
+    </style>
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+
+<nav class="nav">
+    <div class="nav-left">
+        <a href="/" class="logo">SPORT<span>EE</span></a>
+        <div class="nav-tabs">
+            <a href="/" class="{% if active_page == 'portfolio' %}active{% endif %}">Portfolio</a>
+            <a href="/active-bets" class="{% if active_page == 'active-bets' %}active{% endif %}">Active Bets</a>
+            <a href="/history" class="{% if active_page == 'history' %}active{% endif %}">History</a>
+            <a href="/analytics" class="{% if active_page == 'analytics' %}active{% endif %}">Analytics</a>
+        </div>
+    </div>
+    <div class="nav-right">
+        <div>
+            <div class="nav-balance">${{ bet_stats.bankroll|default(1000)|round(2) }}</div>
+            <div class="nav-balance-sub">{% if (bet_stats.roi|default(0)) >= 0 %}+{% endif %}{{ bet_stats.roi|default(0) }}% ROI</div>
+        </div>
+        <div class="nav-icons">
+            <div class="nav-icon" title="Notifications">&#128276;</div>
+            <div class="nav-icon" title="Settings">&#9881;</div>
+        </div>
+    </div>
+</nav>
+
+<div class="main">
+    {% block content %}{% endblock %}
+    <footer>SPORTEE &middot; Tennis + CS2 &middot; Auto-refresh 60s</footer>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+function showToast(msg, type) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast show ' + (type || 'success');
+    setTimeout(() => t.className = 'toast', 3000);
+}
+
+async function apiPost(url, data) {
+    try {
+        const r = await fetch(url, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data),
+        });
+        const j = await r.json();
+        if (j.ok) { showToast(j.message || 'Done', 'success'); }
+        else { showToast(j.error || 'Error', 'error'); }
+        return j;
+    } catch(e) { showToast('Network error', 'error'); return null; }
+}
+
+async function placeBet(matchId, market, label, prob, odds, edge, conf, stake, event, t1, t2) {
+    const r = await apiPost('/api/bet/place', {
+        match_id: matchId, market: market, market_label: label,
+        our_prob: prob, our_odds: odds, edge: edge, confidence: conf,
+        stake: stake, event: event, team1_name: t1, team2_name: t2,
+    });
+    if (r && r.ok) refreshPositions();
+}
+
+async function resolveSingle(betId, btn) {
+    if (btn) { btn.textContent = '...'; btn.disabled = true; }
+    const r = await apiPost('/api/resolve-single', { bet_id: betId });
+    if (r && r.ok) {
+        setTimeout(() => location.reload(), 500);
+    } else if (btn) {
+        btn.textContent = 'R';
+        btn.disabled = false;
+    }
+}
+
+async function resolveAll() {
+    const btn = document.getElementById('resolve-all-btn');
+    if (btn) { btn.textContent = 'Resolving...'; btn.disabled = true; }
+    const r = await apiPost('/api/resolve-all', {});
+    if (r && r.ok) {
+        showToast(r.message + ` (${r.wins}W/${r.losses}L, ${r.pending} pending)`, 'success');
+        setTimeout(() => location.reload(), 1500);
+    }
+    if (btn) { btn.textContent = 'Resolve Pending'; btn.disabled = false; }
+}
+
+async function resolveBet(betId, result) {
+    const r = await apiPost('/api/bet/resolve', { bet_id: betId, result: result });
+    if (r && r.ok) {
+        window.location.reload();
+    }
+}
+
+async function deleteBet(betId) {
+    const r = await apiPost('/api/bet/delete', { bet_id: betId });
+    if (r && r.ok) {
+        window.location.reload();
+    }
+}
+
+async function refreshPositions() {
+    try {
+        const r = await fetch('/api/positions');
+        const data = await r.json();
+        const tbody = document.getElementById('positions-body');
+        const statsEl = document.getElementById('bankroll-val');
+        if (!tbody) return;
+
+        if (statsEl && data.bankroll !== undefined) {
+            statsEl.textContent = '$' + data.bankroll.toFixed(2);
+        }
+
+        tbody.innerHTML = '';
+        if (!data.bets || data.bets.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-faint);padding:20px">No positions yet</td></tr>';
+            return;
+        }
+        data.bets.forEach(b => {
+            let statusHtml = '';
+            if (b.status === 'pending') statusHtml = '<span class="status-pending">PENDING</span>';
+            else if (b.status === 'won') statusHtml = '<span class="status-won">WON</span>';
+            else if (b.status === 'lost') statusHtml = '<span class="status-lost">LOST</span>';
+
+            let plHtml = '<span class="mono" style="color:var(--text-faint)">$0</span>';
+            if (b.status === 'won') plHtml = `<span class="mono green">+$${b.profit}</span>`;
+            else if (b.status === 'lost') plHtml = `<span class="mono red">-$${b.stake}</span>`;
+
+            let actionHtml = '<span style="color:var(--text-faint)">-</span>';
+            if (b.status === 'pending') {
+                actionHtml = `<div style="display:flex;gap:4px">
+                    <button class="btn btn-primary btn-sm" onclick="resolveBet('${b.id}','won')">W</button>
+                    <button class="btn btn-danger btn-sm" onclick="resolveBet('${b.id}','lost')">L</button>
+                    <button class="btn btn-secondary btn-sm" onclick="deleteBet('${b.id}')" style="font-size:10px;padding:2px 6px">X</button>
+                </div>`;
+            }
+
+            tbody.innerHTML += `<tr>
+                <td><div class="name">${b.market_label}</div><div class="sub">${b.team1_name} vs ${b.team2_name}${b.created_at ? ' · '+b.created_at.slice(0,10) : ''}</div></td>
+                <td>${statusHtml}</td>
+                <td><span class="mono" style="font-weight:700;color:var(--tertiary)">${b.our_odds || '-'}</span></td>
+                <td class="mono">$${b.stake}</td>
+                <td>${plHtml}</td>
+                <td>${actionHtml}</td>
+            </tr>`;
+        });
+    } catch(e) {}
+}
+</script>
+{% block scripts %}{% endblock %}
+<script>
+// Paginate tables with class "paged-tbl"
+var _pagers = {};
+function initPagers() {
+    document.querySelectorAll('.paged-tbl').forEach((tbl, tblIdx) => {
+        const perPage = 15;
+        const tbody = tbl.querySelector('tbody');
+        if (!tbody) return;
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        if (rows.length <= perPage) return;
+
+        const pages = Math.ceil(rows.length / perPage);
+        let current = 0;
+
+        function show(page) {
+            current = page;
+            _pagers[tblIdx] = page;
+            rows.forEach((r, i) => {
+                if (r.style.display === 'none' && r.dataset.hidden === '1') return; // deleted
+                r.style.display = (i >= page*perPage && i < (page+1)*perPage) ? '' : 'none';
+            });
+            pager.querySelectorAll('.pager-btn').forEach((b, i) => b.classList.toggle('active', i === page));
+        }
+
+        const pager = document.createElement('div');
+        pager.className = 'pager';
+        pager.dataset.tblIdx = tblIdx;
+        for (let i = 0; i < pages; i++) {
+            const btn = document.createElement('button');
+            btn.className = 'pager-btn';
+            btn.textContent = i + 1;
+            btn.onclick = () => show(i);
+            pager.appendChild(btn);
+        }
+        tbl.parentNode.insertBefore(pager, tbl.nextSibling);
+        // Restore page from sessionStorage after reload
+        const savedPage = parseInt(sessionStorage.getItem('_page') || '1') - 1;
+        sessionStorage.removeItem('_page');
+        show(Math.min(savedPage >= 0 ? savedPage : 0, pages - 1));
+    });
+}
+document.addEventListener('DOMContentLoaded', initPagers);
+
+function playerUrl(name) {
+    // Convert "Andreeva M." or "Mirra Andreeva" to /atp/player/andreeva-m or /wta/player/mirra-andreeva
+    var slug = name.toLowerCase().replace(/\./g, '').replace(/\s+/g, '-').replace(/-+$/, '');
+    // Default to atp, template can override
+    return '/atp/player/' + slug;
+}
+</script>
+</body>
+</html>

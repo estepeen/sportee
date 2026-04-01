@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Bet History - Sportee{% endblock %}
+
+{% block content %}
+<div class="page-title">Bet History</div>
+
+<div class="stat-row">
+    <div class="stat-card stat-card-glow">
+        <div class="stat-label">Total P&L</div>
+        <div class="stat-value {% if (bet_stats.total_profit|default(0)) >= 0 %}green{% else %}red{% endif %}">{% if (bet_stats.total_profit|default(0)) >= 0 %}+{% endif %}${{ bet_stats.total_profit|default(0) }}</div>
+        <div class="stat-sub">Across {{ bet_stats.total_bets|default(0) }} resolved bets</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Win Rate</div>
+        <div class="stat-value {% if (bet_stats.winrate|default(0)) >= 55 %}green{% elif (bet_stats.winrate|default(0)) >= 45 %}amber{% endif %}">{{ bet_stats.winrate|default(0) }}%</div>
+        <div class="stat-sub">{{ bet_stats.wins|default(0) }}W / {{ bet_stats.losses|default(0) }}L</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">ROI</div>
+        <div class="stat-value {% if (bet_stats.roi|default(0)) >= 0 %}green{% else %}red{% endif %}">{{ bet_stats.roi|default(0) }}%</div>
+        <div class="stat-sub">Return on investment</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Total Staked</div>
+        <div class="stat-value">${{ bet_stats.total_staked|default(0) }}</div>
+        <div class="stat-sub">Avg odds: {{ bet_stats.avg_odds|default(0) }}</div>
+    </div>
+</div>
+
+<div class="section">
+    <div class="section-header">
+        <div class="section-title">All Bets</div>
+        <span class="badge">{{ total_bets }} total</span>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+        <form action="/history" method="get" style="display:flex;gap:4px;margin-right:8px">
+            <input type="text" name="q" value="{{ filter_q or '' }}" placeholder="Search player..." style="background:var(--surface);border:1px solid var(--border-dim);border-radius:6px;padding:5px 10px;color:var(--text);font-size:12px;width:140px;font-family:'Inter',sans-serif">
+            {% if filter_status %}<input type="hidden" name="status" value="{{ filter_status }}">{% endif %}
+            {% if filter_tour %}<input type="hidden" name="tour" value="{{ filter_tour }}">{% endif %}
+            <button type="submit" class="pager-btn" style="padding:5px 10px">Go</button>
+            {% if filter_q %}<a href="/history{% if filter_status %}?status={{ filter_status }}{% endif %}" class="pager-btn" style="padding:5px 8px;color:var(--error)">X</a>{% endif %}
+        </form>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <a href="/history" class="pager-btn {% if not filter_status %}active{% endif %}">All</a>
+        <a href="/history?status=won" class="pager-btn {% if filter_status == 'won' %}active{% endif %}">Won</a>
+        <a href="/history?status=lost" class="pager-btn {% if filter_status == 'lost' %}active{% endif %}">Lost</a>
+        <a href="/history?status=void" class="pager-btn {% if filter_status == 'void' %}active{% endif %}">Void</a>
+        <span style="width:1px;background:var(--border);margin:0 4px"></span>
+        <a href="/history{% if filter_status %}?status={{ filter_status }}{% endif %}" class="pager-btn {% if not filter_tour %}active{% endif %}">All Tours</a>
+        <a href="/history?tour=miami{% if filter_status %}&status={{ filter_status }}{% endif %}" class="pager-btn {% if filter_tour == 'miami' %}active{% endif %}">Miami</a>
+        <a href="/history?tour=challenger{% if filter_status %}&status={{ filter_status }}{% endif %}" class="pager-btn {% if filter_tour == 'challenger' %}active{% endif %}">Challenger</a>
+        <a href="/history?tour=houston{% if filter_status %}&status={{ filter_status }}{% endif %}" class="pager-btn {% if filter_tour == 'houston' %}active{% endif %}">Houston</a>
+    </div>
+    <div class="tbl-wrap"><table class="tbl">
+        <thead>
+            <tr>
+                <th>Status</th>
+                <th>Match / Market</th>
+                <th>Result</th>
+                <th>Event</th>
+                <th>Odds</th>
+                <th>Stake</th>
+                <th>Profit</th>
+                <th>Match Date</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for b in all_bets %}
+        <tr class="bet-row" data-status="{{ b.status }}" data-event="{{ (b.event or '')|lower }}" data-bet-id="{{ b.id }}" style="{% if b.status == 'won' %}background:rgba(74,222,128,0.05){% elif b.status == 'lost' %}background:rgba(239,68,68,0.05){% endif %}">
+            <td class="bet-status">
+                {% if b.status == 'won' %}<span class="status-won">WON</span>
+                {% elif b.status == 'lost' %}<span class="status-lost">LOST</span>
+                {% elif b.status == 'void' %}<span style="color:var(--tertiary);font-weight:700;font-size:11px">VOID</span>
+                {% else %}<span class="status-pending">PENDING</span>{% endif %}
+                <div style="display:flex;gap:3px;margin-top:4px">
+                    <button class="btn btn-primary btn-sm resolve-btn" data-result="won" onclick="resolveBet('{{ b.id }}','won')" {% if b.status == 'won' %}disabled style="opacity:0.3"{% endif %}>W</button>
+                    <button class="btn btn-danger btn-sm resolve-btn" data-result="lost" onclick="resolveBet('{{ b.id }}','lost')" {% if b.status == 'lost' %}disabled style="opacity:0.3"{% endif %}>L</button>
+                    <button class="btn btn-secondary btn-sm resolve-btn" data-result="pending" onclick="resolveBet('{{ b.id }}','pending')" style="font-size:10px;padding:2px 6px;{% if b.status == 'pending' %}opacity:0.3{% endif %}" {% if b.status == 'pending' %}disabled{% endif %}>P</button>
+                    <button class="btn btn-secondary btn-sm resolve-btn" data-result="void" onclick="resolveBet('{{ b.id }}','void')" style="font-size:10px;padding:2px 6px;{% if b.status == 'void' %}opacity:0.3{% endif %}" {% if b.status == 'void' %}disabled{% endif %}>V</button>
+                    {% if b.status == 'pending' %}<button class="btn btn-secondary btn-sm" onclick="resolveSingle('{{ b.id }}', this)" style="font-size:10px;padding:2px 6px;color:var(--tertiary)" title="Check SofaScore">R</button>{% endif %}
+                    <button class="btn btn-secondary btn-sm" onclick="deleteBet('{{ b.id }}')" style="font-size:10px;padding:2px 6px;color:var(--error)">X</button>
+                </div>
+            </td>
+            <td>
+                <div style="font-weight:700;color:#4ade80;font-family:'Space Grotesk',sans-serif;display:flex;align-items:center;gap:6px">
+                    {{ b.market_label }}
+                    {% if b.reason %}<span style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:var(--surface-highest);color:var(--text-faint);font-size:10px;cursor:help;flex-shrink:0" title="{{ b.reason }}">i</span>{% endif %}
+                </div>
+                <div class="sub">{% if b.pm_url %}<a href="{{ b.pm_url }}" target="_blank" style="color:var(--text);text-decoration:none;font-weight:500" onmouseover="this.style.textDecoration='underline';this.style.color='var(--tertiary)'" onmouseout="this.style.textDecoration='none';this.style.color='var(--text)'">{{ b.team1_name }} vs {{ b.team2_name }}</a>{% else %}<span style="color:var(--text)">{{ b.team1_name }} vs {{ b.team2_name }}</span>{% endif %}</div>
+            </td>
+            <td><span style="font-size:11px;color:var(--text-dim);font-family:'Space Grotesk',sans-serif">{{ b.actual_result if b.actual_result else '-' }}</span></td>
+            <td>
+                <span style="color:var(--text);font-weight:600;font-size:12px">{{ b.event[:25] if b.event else '-' }}</span>
+                {% if b.round %}<br><span style="color:var(--warning);font-size:10px">{{ b.round }}</span>{% endif %}
+            </td>
+            <td><span class="mono" style="font-weight:700;color:var(--tertiary)">{{ b.our_odds }}</span></td>
+            <td class="mono">${{ b.stake }}</td>
+            <td>
+                {% if b.status == 'won' %}
+                <span class="mono green">+${{ b.profit|round(2) }}</span>
+                {% elif b.status == 'lost' %}
+                <span class="mono red">-${{ b.stake }}</span>
+                {% else %}<span style="color:var(--text-faint)">-</span>{% endif %}
+            </td>
+            <td>
+                <span style="color:var(--text);font-size:11px;font-family:'Space Grotesk',sans-serif">{{ b.created_at[:10] if b.created_at else '-' }}</span>
+                {% if b.created_at and b.created_at|length > 11 %}<br><span style="color:var(--text-dim);font-size:10px">{{ b.created_at[11:16] }}</span>{% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+    {% if not all_bets %}
+    <div class="empty">No bet history yet.</div>
+    {% endif %}
+
+    {% if total_pages > 1 %}
+    <div class="pager">
+        {% for p in range(1, total_pages + 1) %}
+        <a href="/history?page={{ p }}{% if filter_status %}&status={{ filter_status }}{% endif %}{% if filter_tour %}&tour={{ filter_tour }}{% endif %}{% if filter_q %}&q={{ filter_q }}{% endif %}" class="pager-btn {% if p == page %}active{% endif %}">{{ p }}</a>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

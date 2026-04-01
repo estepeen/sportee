@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}Markets - Sportee{% endblock %}
+
+{% block extra_css %}
+<style>
+    .market-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
+    .market-card { background: var(--surface-high); border-radius: 10px; padding: 16px; border: 1px solid transparent; transition: all .15s; }
+    .market-card:hover { border-color: var(--border); }
+    .market-card.market-value { border-color: rgba(74, 222, 128, 0.3); }
+    .market-odds-btn.market-value-pick { border-color: rgba(74, 222, 128, 0.4) !important; background: rgba(74, 222, 128, 0.05) !important; }
+    .market-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .market-event { font-size: 10px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.5px; font-family: 'Manrope', sans-serif; }
+    .market-matchup { font-family: 'Space Grotesk', sans-serif; font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 12px; }
+    .market-odds-row { display: flex; gap: 8px; margin-bottom: 12px; }
+    .market-odds-btn { flex: 1; background: var(--surface); border: 1px solid var(--border-dim); border-radius: 8px; padding: 10px; text-align: center; cursor: pointer; transition: all .15s; }
+    .market-odds-btn:hover { border-color: var(--tertiary); background: var(--tertiary-bg); }
+    .market-odds-btn .player-name { font-size: 11px; color: var(--text-dim); margin-bottom: 4px; font-family: 'Manrope', sans-serif; }
+    .market-odds-btn .player-odds { font-family: 'Space Grotesk', sans-serif; font-size: 18px; font-weight: 700; color: var(--text); }
+    .market-odds-btn .player-pct { font-size: 10px; color: var(--text-faint); margin-top: 2px; font-family: 'Manrope', sans-serif; }
+    .market-odds-btn.fav .player-odds { color: var(--tertiary); }
+    .market-stake { display: flex; gap: 6px; align-items: center; }
+    .stake-input { background: var(--surface); border: 1px solid var(--border-dim); border-radius: 6px; padding: 6px 10px; color: var(--text); font-size: 12px; width: 80px; font-family: 'Inter', sans-serif; font-variant-numeric: tabular-nums; }
+    .stake-input:focus { outline: none; border-color: var(--tertiary); }
+    .stake-presets { display: flex; gap: 4px; }
+    .stake-preset { background: var(--surface-highest); border: none; border-radius: 4px; padding: 4px 8px; color: var(--text-faint); font-size: 10px; cursor: pointer; font-family: 'Manrope', sans-serif; }
+    .stake-preset:hover { color: var(--text); background: var(--border); }
+
+    .tournament-header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; margin-top: 24px; }
+    .tournament-header:first-child { margin-top: 0; }
+    .tournament-header h2 { font-family: 'Space Grotesk', sans-serif; font-size: 14px; font-weight: 700; color: var(--tertiary); }
+    .tournament-header .count { font-size: 11px; color: var(--text-faint); }
+    .tournament-line { flex: 1; height: 1px; background: var(--border-dim); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-title">Tennis Markets <span class="badge badge-tennis">{{ tennis_matches|length }} ACTIVE</span>
+    {% if sofascore_usage %}
+    <span class="badge" style="background: var(--surface-highest); color: var(--text-dim); font-size: 10px; margin-left: 8px;">SS API: {{ sofascore_usage.used }}/{{ sofascore_usage.limit }}</span>
+    {% endif %}
+</div>
+
+{% set ns = namespace(current_tournament='', tournaments={}) %}
+{% for m in tennis_matches %}
+    {% if m.tournament not in ns.tournaments %}
+        {% set _ = ns.tournaments.update({m.tournament: []}) %}
+    {% endif %}
+{% endfor %}
+
+{% set grouped = {} %}
+
+{% set ns = namespace(current_tournament='') %}
+{% for m in tennis_matches %}
+    {% if m.tournament != ns.current_tournament %}
+        {% set ns.current_tournament = m.tournament %}
+        <div class="tournament-header">
+            <span class="badge badge-tennis">{{ m.tour or 'ATP' }}</span>
+            <h2>{{ m.tournament or 'Unknown Tournament' }}</h2>
+            <div class="tournament-line"></div>
+        </div>
+    {% endif %}
+{% endfor %}
+
+<!-- All markets as a grid -->
+{% set ns2 = namespace(current_tournament='') %}
+{% for m in tennis_matches %}
+    {% if m.tournament != ns2.current_tournament %}
+        {% if ns2.current_tournament != '' %}</div>{% endif %}
+        {% set ns2.current_tournament = m.tournament %}
+        <div class="tournament-header">
+            <span class="badge badge-tennis">{{ m.tour or 'ATP' }}</span>
+            <h2>{{ m.tournament or 'Unknown' }}</h2>
+            <div class="tournament-line"></div>
+        </div>
+        <div class="market-grid">
+    {% endif %}
+
+    <div class="market-card {% if m.p1_value or m.p2_value %}market-value{% endif %}">
+        <div class="market-top">
+            <div class="market-event">{{ m.tour or 'ATP' }} &middot; {{ m.tournament[:20] }}{% if m.round %} &middot; {{ m.round }}{% endif %}</div>
+            <div style="display:flex;gap:4px">
+                {% if m.p1_value or m.p2_value %}<span class="badge" style="background:#1a472a;color:#4ade80;font-size:9px;padding:2px 6px">VALUE</span>{% endif %}
+                <span class="badge" style="font-size: 9px; padding: 2px 6px; {% if m.source == 'sofascore' %}background: #1a472a; color: #4ade80;{% else %}background: #1e293b; color: #94a3b8;{% endif %}">{{ m.source|default('polymarket')|upper }}</span>
+            </div>
+        </div>
+        <div class="market-matchup">{{ m.player1 }}{% if m.player1_rank %} <span style="color:var(--text-faint);font-size:11px">#{{ m.player1_rank }}</span>{% endif %} vs {{ m.player2 }}{% if m.player2_rank %} <span style="color:var(--text-faint);font-size:11px">#{{ m.player2_rank }}</span>{% endif %}</div>
+        <div class="market-odds-row">
+            <div class="market-odds-btn {% if m.player1_price >= m.player2_price %}fav{% endif %} {% if m.p1_value %}market-value-pick{% endif %}" onclick="selectPlayer(this, '{{ m.player1 }}', {{ m.player1_odds }}, {{ m.player1_price }})">
+                <div class="player-name">{{ m.player1 }}</div>
+                <div class="player-odds">{{ m.player1_odds }}</div>
+                <div class="player-pct">Mkt {{ (m.player1_price*100)|round(0) }}%</div>
+                {% if m.ml_p1_prob %}<div class="player-pct" style="color:{% if m.p1_edge > 0 %}#4ade80{% else %}var(--text-faint){% endif %}">AI {{ (m.ml_p1_prob*100)|round(0) }}% {% if m.p1_edge > 0 %}+{{ m.p1_edge }}%{% endif %}</div>{% endif %}
+            </div>
+            <div class="market-odds-btn {% if m.player2_price >= m.player1_price %}fav{% endif %} {% if m.p2_value %}market-value-pick{% endif %}" onclick="selectPlayer(this, '{{ m.player2 }}', {{ m.player2_odds }}, {{ m.player2_price }})">
+                <div class="player-name">{{ m.player2 }}</div>
+                <div class="player-odds">{{ m.player2_odds }}</div>
+                <div class="player-pct">Mkt {{ (m.player2_price*100)|round(0) }}%</div>
+                {% if m.ml_p2_prob %}<div class="player-pct" style="color:{% if m.p2_edge > 0 %}#4ade80{% else %}var(--text-faint){% endif %}">AI {{ (m.ml_p2_prob*100)|round(0) }}% {% if m.p2_edge > 0 %}+{{ m.p2_edge }}%{% endif %}</div>{% endif %}
+            </div>
+        </div>
+        {% if m.first_set_p1_odds %}
+        <div style="font-size:10px; color:var(--text-faint); margin-bottom:6px; font-family:'Manrope',sans-serif;">
+            1st Set: {{ m.player1[:12] }} <b style="color:var(--text-dim)">@{{ m.first_set_p1_odds }}</b> &middot; {{ m.player2[:12] }} <b style="color:var(--text-dim)">@{{ m.first_set_p2_odds }}</b>
+            {% if m.total_games_line %}&middot; Total {{ m.total_games_line }} O<b style="color:var(--text-dim)">@{{ m.total_games_over }}</b> U<b style="color:var(--text-dim)">@{{ m.total_games_under }}</b>{% endif %}
+        </div>
+        {% endif %}
+        <div class="market-stake">
+            <input type="number" class="stake-input" value="50" min="1" id="stake-{{ loop.index }}">
+            <div class="stake-presets">
+                <button class="stake-preset" onclick="document.getElementById('stake-{{ loop.index }}').value=25">$25</button>
+                <button class="stake-preset" onclick="document.getElementById('stake-{{ loop.index }}').value=50">$50</button>
+                <button class="stake-preset" onclick="document.getElementById('stake-{{ loop.index }}').value=100">$100</button>
+            </div>
+            <button class="btn btn-purple btn-sm" onclick="placeMarketBet({{ loop.index }}, '{{ m.player1 }}', '{{ m.player2 }}', '{{ m.tournament }}', {{ m.player1_odds }}, {{ m.player1_price }}, {{ m.player2_odds }}, {{ m.player2_price }})">Place Bet</button>
+        </div>
+    </div>
+{% endfor %}
+{% if tennis_matches %}</div>{% endif %}
+
+{% if not tennis_matches %}
+<div class="section">
+    <div class="empty">No tennis markets available. Run update to fetch from Polymarket.</div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+let selectedPlayers = {};
+
+function selectPlayer(el, player, odds, price) {
+    const card = el.closest('.market-card');
+    card.querySelectorAll('.market-odds-btn').forEach(b => b.style.borderColor = '');
+    el.style.borderColor = 'var(--tertiary)';
+    const idx = card.querySelector('.stake-input').id.split('-')[1];
+    selectedPlayers[idx] = { player, odds, price };
+}
+
+function placeMarketBet(idx, p1, p2, tournament, p1odds, p1price, p2odds, p2price) {
+    const stake = parseInt(document.getElementById('stake-' + idx).value) || 50;
+    const sel = selectedPlayers[idx];
+    if (!sel) {
+        showToast('Select a player first', 'error');
+        return;
+    }
+    const isP1 = sel.player === p1;
+    placeBet(0,
+        isP1 ? 'player1_win' : 'player2_win',
+        sel.player + ' WIN',
+        sel.price, sel.odds, 0, 0, stake,
+        tournament, p1, p2
+    );
+}
+</script>
+{% endblock %}
