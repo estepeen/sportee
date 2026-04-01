@@ -452,55 +452,63 @@ setTimeout(() => location.reload(), 120000);
 
     function render(state) {
         const matches = state.matches || [];
-        // Show only matches where we have a bet OR all live
-        const relevant = matches;
-
-        if (relevant.length === 0) {
-            section.style.display = 'none';
-            return;
-        }
+        if (matches.length === 0) { section.style.display = 'none'; return; }
         section.style.display = '';
-        const withBet = relevant.filter(m => m.has_bet).length;
-        countEl.textContent = `${relevant.length} LIVE` + (withBet ? ` · ${withBet} BET` : '');
+
+        // Sort: bets first, then by price movement (further from 50/50 = more decisive)
+        matches.sort((a, b) => (b.has_bet ? 1 : 0) - (a.has_bet ? 1 : 0) || Math.abs(b.player1_price - 0.5) - Math.abs(a.player1_price - 0.5));
+
+        const withBet = matches.filter(m => m.has_bet).length;
+        countEl.textContent = `${matches.length} LIVE` + (withBet ? ` · ${withBet} MY BETS` : '');
 
         let html = '';
-        for (const m of relevant) {
+        for (const m of matches) {
             const hasBet = m.has_bet;
             const border = hasBet ? 'border-color:rgba(255,113,108,0.5)' : '';
-            const p1Leading = m.player1_sets > m.player2_sets;
-            const p2Leading = m.player2_sets > m.player1_sets;
+            const p1Fav = m.player1_price > m.player2_price;
+            const p1Pct = Math.round(m.player1_price * 100);
+            const p2Pct = Math.round(m.player2_price * 100);
+
+            // P&L indicator for our bet
+            let betInfo = '';
+            if (hasBet) {
+                const winning = m.our_price && m.our_price > 0.5;
+                const pctStr = m.our_price ? Math.round(m.our_price * 100) + '%' : '';
+                const color = winning ? 'var(--primary)' : 'var(--error)';
+                betInfo = `<div style="margin-top:8px;padding:6px 8px;background:${winning?'var(--primary-bg)':'var(--error-bg)'};border-radius:6px;font-size:11px;font-family:'Manrope',sans-serif">
+                    <span style="color:${color};font-weight:700">${m.bet_label}</span>
+                    <span style="color:var(--text-faint)"> @ ${m.bet_odds} · $${m.bet_stake}</span>
+                    <span style="float:right;color:${color};font-weight:700;font-family:'Space Grotesk',sans-serif">${pctStr}</span>
+                </div>`;
+            }
 
             html += `<div class="pulse-card" style="min-width:300px;${border}">
                 <div class="pulse-top">
                     <div class="pulse-event">
                         <span class="badge badge-live">LIVE</span>
-                        <span class="badge badge-tennis">${m.tour}</span>
-                        ${m.tournament ? m.tournament.slice(0, 18) : ''}
+                        ${m.tournament ? m.tournament.slice(0, 20) : ''}
                     </div>
                     ${hasBet ? '<span class="badge" style="background:var(--error-bg);color:var(--error);font-size:9px">MY BET</span>' : ''}
                 </div>
-                <div style="display:flex;justify-content:space-between;align-items:center;margin:10px 0">
-                    <div style="flex:1">
-                        <div style="font-family:'Space Grotesk',sans-serif;font-size:15px;font-weight:${p1Leading?700:500};color:${p1Leading?'var(--text)':'var(--text-dim)'}">${m.player1}</div>
-                        <div style="font-family:'Space Grotesk',sans-serif;font-size:15px;font-weight:${p2Leading?700:500};color:${p2Leading?'var(--text)':'var(--text-dim)'}; margin-top:4px">${m.player2}</div>
+                <div style="margin:10px 0">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                        <span style="font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:${p1Fav?700:500};color:${p1Fav?'var(--text)':'var(--text-dim)'}">${m.player1}</span>
+                        <span style="font-family:'Space Grotesk',sans-serif;font-size:16px;font-weight:700;color:${p1Fav?'var(--tertiary)':'var(--text-dim)'}">${m.player1_odds}</span>
                     </div>
-                    <div style="text-align:right;min-width:60px">
-                        <div style="font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:700;color:${p1Leading?'var(--primary)':'var(--text-dim)'}">${m.player1_sets}</div>
-                        <div style="font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:700;color:${p2Leading?'var(--primary)':'var(--text-dim)'}">${m.player2_sets}</div>
+                    <div style="display:flex;gap:4px;height:6px;margin-bottom:6px">
+                        <div style="flex:${p1Pct};background:var(--tertiary);border-radius:3px;transition:flex .5s"></div>
+                        <div style="flex:${p2Pct};background:var(--surface-highest);border-radius:3px;transition:flex .5s"></div>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;align-items:center">
+                        <span style="font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:${!p1Fav?700:500};color:${!p1Fav?'var(--text)':'var(--text-dim)'}">${m.player2}</span>
+                        <span style="font-family:'Space Grotesk',sans-serif;font-size:16px;font-weight:700;color:${!p1Fav?'var(--tertiary)':'var(--text-dim)'}">${m.player2_odds}</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-faint);margin-top:4px;font-family:'Manrope',sans-serif">
+                        <span>${p1Pct}%</span><span>${p2Pct}%</span>
                     </div>
                 </div>
-                <div style="font-size:11px;color:var(--text-faint);font-family:'Space Grotesk',sans-serif;margin-bottom:8px">${m.score || ''}</div>
-                ${m.pm_p1_odds ? `<div style="display:flex;gap:8px;margin-bottom:4px">
-                    <div class="tennis-player" style="flex:1">
-                        <div class="name">${m.player1.split(' ').pop().slice(0,10)}</div>
-                        <div class="odds">${m.pm_p1_odds}</div>
-                    </div>
-                    <div class="tennis-player" style="flex:1">
-                        <div class="name">${m.player2.split(' ').pop().slice(0,10)}</div>
-                        <div class="odds">${m.pm_p2_odds}</div>
-                    </div>
-                </div>` : ''}
-                ${hasBet ? `<div style="font-size:10px;color:var(--error);font-family:'Manrope',sans-serif;font-weight:600">${m.bet_label} @ ${m.bet_odds} · $${m.bet_stake}</div>` : ''}
+                ${betInfo}
+                ${m.pm_url ? `<a href="${m.pm_url}" target="_blank" style="font-size:9px;color:var(--text-faint);margin-top:6px;display:block;font-family:'Manrope',sans-serif">Polymarket &rarr;</a>` : ''}
             </div>`;
         }
         cards.innerHTML = html;
