@@ -98,26 +98,27 @@ def _recompute_cache():
         except Exception:
             pass
 
-        # Doubles
-        doubles_matches = []
-        try:
-            doubles_matches = load_doubles_odds()
-            doubles_matches = _enrich_doubles_with_predictions(doubles_matches)
-        except Exception:
-            pass
-
         _predictions_cache = {
             "matches": upcoming,
             "all_matches": all_matches,
             "picks": picks[:8],
             "value_bets": value_bets,
-            "doubles": doubles_matches,
+            "doubles": [],
             "updated": datetime.now().isoformat(),
         }
-    except Exception:
-        pass
-    finally:
-        _cache_computing = False
+    except Exception as e:
+        import traceback
+        logging.getLogger(__name__).error(f"Cache recompute failed: {e}\n{traceback.format_exc()}")
+
+    # Doubles (separate try so singles failure doesn't block doubles)
+    try:
+        doubles_matches = load_doubles_odds()
+        doubles_matches = _enrich_doubles_with_predictions(doubles_matches)
+        _predictions_cache["doubles"] = doubles_matches
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Doubles cache failed: {e}")
+
+    _cache_computing = False
 
 
 @app.on_event("startup")
