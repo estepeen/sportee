@@ -65,32 +65,52 @@ def _surname(full_name: str) -> str:
     return parts[-1] if len(parts[-1]) >= 3 else parts[0]
 
 
-def _parse_doubles_team(team: dict) -> tuple[str, str, str]:
-    """Parse SofaScore doubles team into (db_name1, db_name2, display_name).
+def _parse_doubles_team(team: dict) -> dict:
+    """Parse SofaScore doubles team into structured info.
 
-    Returns:
-        (p1_db_name, p2_db_name, "Surname1/Surname2")
+    Returns dict with: p1_db, p2_db, display, slug, player_id
     """
+    result = {"p1_db": "", "p2_db": "", "display": "", "slug": "", "player_id": 0}
     name = team.get("name", "")
 
-    # Check for subTeams first
+    # Team-level slug/id (for the pair entity)
+    team_slug = team.get("slug", "")
+    team_id = team.get("id", 0)
+
+    # Check for subTeams first (individual players with their own slugs)
     sub_teams = team.get("subTeams", [])
     if len(sub_teams) >= 2:
         p1_raw = sub_teams[0].get("name", "")
         p2_raw = sub_teams[1].get("name", "")
+        p1_slug = sub_teams[0].get("slug", "")
+        p1_id = sub_teams[0].get("id", 0)
         if p1_raw and p2_raw:
-            display = f"{_surname(p1_raw)}/{_surname(p2_raw)}"
-            return _sofascore_name_to_db(p1_raw), _sofascore_name_to_db(p2_raw), display
+            result["p1_db"] = _sofascore_name_to_db(p1_raw)
+            result["p2_db"] = _sofascore_name_to_db(p2_raw)
+            result["display"] = f"{_surname(p1_raw)}/{_surname(p2_raw)}"
+            result["slug"] = p1_slug or team_slug
+            result["player_id"] = p1_id or team_id
+            return result
 
     # Parse "Player1 / Player2" format
     if "/" in name:
         parts = name.split("/")
         if len(parts) >= 2:
             p1_raw, p2_raw = parts[0].strip(), parts[1].strip()
-            display = f"{_surname(p1_raw)}/{_surname(p2_raw)}"
-            return _sofascore_name_to_db(p1_raw), _sofascore_name_to_db(p2_raw), display
+            result["p1_db"] = _sofascore_name_to_db(p1_raw)
+            result["p2_db"] = _sofascore_name_to_db(p2_raw)
+            result["display"] = f"{_surname(p1_raw)}/{_surname(p2_raw)}"
+            # Build slug from first player name
+            slug = _strip_diacritics(p1_raw).lower().replace(" ", "-").replace(".", "").strip("-")
+            result["slug"] = team_slug or slug
+            result["player_id"] = team_id
+            return result
 
-    return "", "", ""
+    return result
+
+
+def _strip_diacritics(s: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
 
 
 async def import_doubles_recent(days: int = 10):
@@ -133,8 +153,10 @@ async def import_doubles_recent(days: int = 10):
                     home = ev.get("homeTeam", {})
                     away = ev.get("awayTeam", {})
 
-                    h_p1, h_p2, h_display = _parse_doubles_team(home)
-                    a_p1, a_p2, a_display = _parse_doubles_team(away)
+                    h_info = _parse_doubles_team(home)
+                    a_info = _parse_doubles_team(away)
+                    h_p1, h_p2, h_display = h_info["p1_db"], h_info["p2_db"], h_info["display"]
+                    a_p1, a_p2, a_display = a_info["p1_db"], a_info["p2_db"], a_info["display"]
                     if not h_p1 or not h_p2 or not a_p1 or not a_p2:
                         continue
 
@@ -355,6 +377,10 @@ async def fetch_doubles_upcoming_with_odds(days: int = 2) -> list[dict]:
                     "team2_p1": a_p1, "team2_p2": a_p2,
                     "team1_name": h_display,
                     "team2_name": a_display,
+                    "team1_slug": h_info["slug"],
+                    "team1_player_id": h_info["player_id"],
+                    "team2_slug": a_info["slug"],
+                    "team2_player_id": a_info["player_id"],
                     "match_type": "doubles",
                 })
 
@@ -431,11 +457,19 @@ def load_doubles_odds() -> list[dict]:
             continue
 
         ss_id = m.get("sofascore_id", "")
+        slug = m.get("team1_slug", "")
+        pid = m.get("team1_player_id", 0)
+        if slug and pid:
+            ss_url = f"https://www.sofascore.com/tennis/player/{slug}/{pid}"
+        elif ss_id:
+            ss_url = f"https://www.sofascore.com/tennis/match/-#id:{ss_id}"
+        else:
+            ss_url = ""
         matches.append({
             "source": "sofascore",
             "match_type": "doubles",
             "sofascore_id": ss_id,
-            "sofascore_url": f"https://www.sofascore.com/tennis/match/-#id:{ss_id}" if ss_id else "",
+            "sofascore_url": ss_url,
             "tournament": m.get("tournament", ""),
             "tour": m.get("tour", ""),
             "round": m.get("round", ""),

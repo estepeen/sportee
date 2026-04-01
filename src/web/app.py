@@ -549,6 +549,8 @@ def _generate_smart_picks(matches: list) -> list:
                 "suggested_stake": suggested_stake,
                 "ll_risk": bool(ll_penalty),
                 "reason": pick_reason,
+                "match_type": m.get("match_type", "singles"),
+                "sofascore_url": m.get("sofascore_url", ""),
             })
 
         # === TOTAL GAMES OVER (when both players are strong servers) ===
@@ -805,27 +807,32 @@ def _format_event_name(tournament: str, tour: str = "") -> str:
     return f"{prefix} {tournament}"
 
 
-def _find_pm_url(player1: str, player2: str, match_type: str = "singles") -> str:
-    """Build SofaScore search URL for a match."""
+def _find_pm_url(pick_data: dict) -> str:
+    """Build SofaScore URL for a bet/pick.
+
+    For doubles: uses sofascore_url from cached odds (has player slug+id).
+    For singles: builds URL from player name.
+    """
     import unicodedata
     def _sd(s):
         return "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
 
+    # If pick already has a sofascore_url from the match data, use it
+    ss_url = pick_data.get("sofascore_url", "")
+    if ss_url:
+        return ss_url
+
+    match_type = pick_data.get("match_type", "singles")
+    player1 = pick_data.get("pick", "") or pick_data.get("player1", "")
+
     if match_type == "doubles":
-        # For doubles, link to SofaScore profile of first player in winning team
         name = player1.split("/")[0].strip() if "/" in player1 else player1
         slug = _sd(name).lower().replace(".", "").replace(" ", "-").strip("-")
-        if slug:
-            return f"https://www.sofascore.com/player/{slug}"
-        return ""
+        return f"https://www.sofascore.com/tennis/player/{slug}" if slug else ""
 
-    # Singles: SofaScore search
-    l1 = _sd(player1).strip().split()[-1] if player1 else ""
-    l2 = _sd(player2).strip().split()[-1] if player2 else ""
-    if l1 and l2:
-        slug1 = _sd(player1).lower().replace(".", "").replace(" ", "-").strip("-")
-        return f"https://www.sofascore.com/player/{slug1}"
-    return ""
+    # Singles
+    slug = _sd(player1).lower().replace(".", "").replace(" ", "-").strip("-")
+    return f"https://www.sofascore.com/tennis/player/{slug}" if slug else ""
 
 
 def _auto_record_all_picks(all_picks: list):
@@ -886,7 +893,7 @@ def _auto_record_all_picks(all_picks: list):
         )
         record = bet_manager.record_bet(rec)
         # Enrich with all available data
-        pm_url = _find_pm_url(pick, opp, p.get("match_type", "singles"))
+        pm_url = _find_pm_url(p)
         source = p.get("source", "unknown")
         for b in bet_manager.bets:
             if b.get("id") == record.id:
@@ -1049,6 +1056,8 @@ def _generate_value_bets(matches: list) -> list:
                 "confidence": confidence,
                 "suggested_stake": suggested_stake,
                 "original_odds": m.get(f"player{'1' if is_p1 else '2'}_odds", 0),
+                "match_type": m.get("match_type", "singles"),
+                "sofascore_url": m.get("sofascore_url", ""),
             })
 
     bets.sort(key=lambda x: -x["edge"])
