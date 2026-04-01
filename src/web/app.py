@@ -805,17 +805,26 @@ def _format_event_name(tournament: str, tour: str = "") -> str:
     return f"{prefix} {tournament}"
 
 
-def _find_pm_url(player1: str, player2: str) -> str:
-    """Find SofaScore URL from cached slug map or Google fallback."""
+def _find_pm_url(player1: str, player2: str, match_type: str = "singles") -> str:
+    """Build SofaScore search URL for a match."""
     import unicodedata
     def _sd(s):
         return "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
 
+    if match_type == "doubles":
+        # For doubles, link to SofaScore profile of first player in winning team
+        name = player1.split("/")[0].strip() if "/" in player1 else player1
+        slug = _sd(name).lower().replace(".", "").replace(" ", "-").strip("-")
+        if slug:
+            return f"https://www.sofascore.com/player/{slug}"
+        return ""
+
+    # Singles: SofaScore search
     l1 = _sd(player1).strip().split()[-1] if player1 else ""
     l2 = _sd(player2).strip().split()[-1] if player2 else ""
-
     if l1 and l2:
-        return f"https://www.google.com/search?q=sofascore+{l1}+{l2}+tennis"
+        slug1 = _sd(player1).lower().replace(".", "").replace(" ", "-").strip("-")
+        return f"https://www.sofascore.com/player/{slug1}"
     return ""
 
 
@@ -877,7 +886,7 @@ def _auto_record_all_picks(all_picks: list):
         )
         record = bet_manager.record_bet(rec)
         # Enrich with all available data
-        pm_url = _find_pm_url(pick, opp)
+        pm_url = _find_pm_url(pick, opp, p.get("match_type", "singles"))
         source = p.get("source", "unknown")
         for b in bet_manager.bets:
             if b.get("id") == record.id:
