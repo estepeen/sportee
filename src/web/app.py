@@ -304,28 +304,52 @@ async def markets_page(request: Request):
 
 
 def _normalize_name(name: str) -> str:
-    return name.lower().replace(" ", "").replace(".", "").replace("-", "").strip()
+    import unicodedata
+    s = "".join(c for c in unicodedata.normalize("NFD", name) if unicodedata.category(c) != "Mn")
+    return s.lower().replace(" ", "").replace(".", "").replace("-", "").strip()
+
+
+def _parse_tournament_from_question(question: str) -> str:
+    """Extract tournament name from Polymarket question like 'Bucharest Open: Player vs Player'."""
+    if ":" in question:
+        return question.split(":")[0].strip()
+    return ""
 
 
 def _merge_tennis_odds(ss_matches: list, pm_matches: list) -> list:
     """Merge SofaScore and Polymarket odds. SS has priority (real bookmaker odds)."""
-    seen = set()
+    seen = {}  # key -> index in merged
     merged = []
 
     for m in ss_matches:
         key = (_normalize_name(m["player1"]), _normalize_name(m["player2"]))
         key_rev = (key[1], key[0])
-        seen.add(key)
-        seen.add(key_rev)
+        idx = len(merged)
+        seen[key] = idx
+        seen[key_rev] = idx
         merged.append(m)
 
     for m in pm_matches:
         key = (_normalize_name(m.get("player1", "")), _normalize_name(m.get("player2", "")))
-        if key not in seen:
+        if key in seen:
+            # Match exists from SofaScore — merge PM odds + URL into it
+            idx = seen[key]
+            existing = merged[idx]
+            existing["pm_url"] = m.get("pm_url", "")
+            existing["player1_price"] = m.get("player1_price", 0)
+            existing["player2_price"] = m.get("player2_price", 0)
+            if not existing.get("player1_odds"):
+                existing["player1_odds"] = m.get("player1_odds", 0)
+                existing["player2_odds"] = m.get("player2_odds", 0)
+        else:
+            # PM-only match — extract tournament from question
+            if not m.get("tournament"):
+                m["tournament"] = _parse_tournament_from_question(m.get("question", ""))
             m["source"] = "polymarket"
+            idx = len(merged)
             merged.append(m)
-            seen.add(key)
-            seen.add((key[1], key[0]))
+            seen[key] = idx
+            seen[(key[1], key[0])] = idx
 
     merged.sort(key=lambda x: (x.get("tournament", ""), x.get("player1", "")))
     return merged
