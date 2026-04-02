@@ -74,7 +74,7 @@ class BetRecord:
 class BetManager:
     """Manages bet recommendations, bankroll, and results tracking."""
 
-    def __init__(self, initial_bankroll: float = 1000.0):
+    def __init__(self, initial_bankroll: float = 1_000_000.0):
         self.bankroll = initial_bankroll
         self.bets: list[dict] = []
         self.load()
@@ -84,7 +84,7 @@ class BetManager:
         try:
             with open(BANKROLL_FILE, "r") as f:
                 data = json.load(f)
-            self.bankroll = data.get("bankroll", 1000.0)
+            self.bankroll = data.get("bankroll", 1_000_000.0)
         except (FileNotFoundError, json.JSONDecodeError):
             pass
 

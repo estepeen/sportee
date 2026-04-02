@@ -75,6 +75,25 @@ def _recompute_cache():
         return
     _cache_computing = True
     try:
+        # Fetch fresh data from APIs, then load
+        try:
+            import asyncio
+            pm_client = PolymarketClient()
+            asyncio.run(pm_client.fetch_tennis_markets())
+            try:
+                asyncio.run(pm_client.client.aclose())
+            except Exception:
+                pass
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"Polymarket fetch failed, using cache: {e}")
+
+        try:
+            import asyncio
+            from src.tennis.sofascore_api import fetch_upcoming_with_odds
+            asyncio.run(fetch_upcoming_with_odds(days=2))
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"SofaScore fetch failed, using cache: {e}")
+
         pm_matches = PolymarketClient.load_tennis_odds()
         ss_matches = load_sofascore_odds()
         all_matches = _merge_tennis_odds(ss_matches, pm_matches)
@@ -180,6 +199,13 @@ def _recompute_cache():
 @app.on_event("startup")
 async def startup_cache():
     """Compute predictions cache on startup."""
+    # Reset bankroll to default if it's been depleted by old bug
+    bet_manager.load()
+    if bet_manager.bankroll < 10_000:
+        logging.getLogger(__name__).info(f"Resetting depleted bankroll from ${bet_manager.bankroll:.0f} to $1,000,000")
+        bet_manager.bankroll = 1_000_000.0
+        bet_manager.save()
+
     import threading
     threading.Thread(target=_recompute_cache, daemon=True).start()
 
