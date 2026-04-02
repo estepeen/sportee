@@ -597,6 +597,7 @@ def _generate_smart_picks(matches: list) -> list:
                 "match_type": m.get("match_type", "singles"),
                 "sofascore_url": m.get("sofascore_url", ""),
                 "sofascore_id": m.get("sofascore_id") or m.get("event_id") or 0,
+                "pm_url": m.get("pm_url", ""),
             })
 
         # === TOTAL GAMES OVER (when both players are strong servers) ===
@@ -855,31 +856,29 @@ def _format_event_name(tournament: str, tour: str = "") -> str:
 
 
 def _find_pm_url(pick_data: dict) -> str:
-    """Build SofaScore URL for a bet/pick.
-
-    For doubles: uses sofascore_url from cached odds (has player slug+id).
-    For singles: builds URL from player name.
-    """
+    """Build best URL for a bet/pick: Polymarket > SofaScore match > SofaScore player."""
     import unicodedata
     def _sd(s):
         return "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
 
-    # If pick already has a sofascore_url from the match data, use it
+    # 1) Polymarket URL (best — direct to betting page)
+    pm_url = pick_data.get("pm_url", "")
+    if pm_url and "polymarket.com" in pm_url:
+        return pm_url
+
+    # 2) SofaScore match URL from cached data
     ss_url = pick_data.get("sofascore_url", "")
     if ss_url:
         return ss_url
 
-    match_type = pick_data.get("match_type", "singles")
+    # 3) Build SofaScore search URL as fallback
     player1 = pick_data.get("pick", "") or pick_data.get("player1", "")
-
-    if match_type == "doubles":
-        name = player1.split("/")[0].strip() if "/" in player1 else player1
-        slug = _sd(name).lower().replace(".", "").replace(" ", "-").strip("-")
-        return f"https://www.sofascore.com/tennis/player/{slug}" if slug else ""
-
-    # Singles
-    slug = _sd(player1).lower().replace(".", "").replace(" ", "-").strip("-")
-    return f"https://www.sofascore.com/tennis/player/{slug}" if slug else ""
+    player2 = pick_data.get("opponent", "") or pick_data.get("player2", "")
+    q = f"{player1} {player2}".strip()
+    if q:
+        from urllib.parse import quote
+        return f"https://www.sofascore.com/search?q={quote(q)}"
+    return ""
 
 
 def _auto_record_all_picks(all_picks: list):
@@ -896,16 +895,32 @@ def _auto_record_all_picks(all_picks: list):
 
     bet_manager.load()  # Fresh read before adding
 
+    import unicodedata
+    def _norm(s):
+        """Strip diacritics, lowercase for matching."""
+        return "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn").lower().strip()
+
     # Collect new picks that need recording (skip duplicates & resolved)
     new_picks = []
+    batch_seen = set()  # track within current batch to avoid ai_picks + value_bets dupes
     for p in all_picks:
         pick = p.get("pick", "")
         opp = p.get("opponent", "")
         bet_type = p.get("bet_type", "WIN")
         label = f"{pick} {bet_type}"
+        norm_pick = _norm(pick)
+        norm_opp = _norm(opp)
 
+        # Dedup within batch (same player+opponent regardless of source)
+        batch_key = (norm_pick, norm_opp, bet_type)
+        if batch_key in batch_seen:
+            continue
+        batch_seen.add(batch_key)
+
+        # Dedup against existing bets (normalized name matching)
         existing = any(
-            b.get("market_label") == label and b.get("team1_name") == pick
+            _norm(b.get("team1_name", "")) == norm_pick
+            and bet_type in b.get("market_label", "")
             and b.get("status") == "pending"
             for b in bet_manager.bets
         )
@@ -913,8 +928,9 @@ def _auto_record_all_picks(all_picks: list):
             continue
 
         already_resolved = any(
-            b.get("team1_name") == pick and b.get("team2_name") == opp
-            and b.get("market_label") == label
+            _norm(b.get("team1_name", "")) == norm_pick
+            and _norm(b.get("team2_name", "")) == norm_opp
+            and bet_type in b.get("market_label", "")
             and b.get("status") in ("won", "lost")
             for b in bet_manager.bets
         )
@@ -989,8 +1005,14 @@ def _auto_record_all_picks(all_picks: list):
                     b["round"] = rnd
                 if match_date:
                     b["created_at"] = match_date if "T" in match_date else f"{match_date}T12:00:00"
+                # Always set reason — generate from metadata if missing
                 if p.get("reason"):
                     b["reason"] = p["reason"]
+                else:
+                    ml = p.get("ml_prob", 0)
+                    mkt = p.get("mkt_prob", 0)
+                    edge = p.get("edge", 0)
+                    b["reason"] = f"AI: {ml*100:.0f}% vs Market: {mkt*100:.0f}% (edge +{edge:.1f}%)"
                 b["bet_meta"] = {
                     "ml_prob": p.get("ml_prob", 0),
                     "mkt_prob": p.get("mkt_prob", 0),
@@ -1125,6 +1147,9 @@ def _generate_value_bets(matches: list) -> list:
             else:
                 suggested_stake = 150
 
+            mkt_prob = 1 / m.get(f"player{'1' if is_p1 else '2'}_odds", 2) if m.get(f"player{'1' if is_p1 else '2'}_odds", 0) > 1 else 0.5
+            reason = _build_pick_reason(name, opp, prob, odds, edge, m)
+
             bets.append({
                 "pick": name,
                 "opponent": opp,
@@ -1134,7 +1159,7 @@ def _generate_value_bets(matches: list) -> list:
                 "date": m.get("date", ""),
                 "bet_type": bet_type,
                 "ml_prob": prob,
-                "mkt_prob": 1 / m.get(f"player{'1' if is_p1 else '2'}_odds", 2) if m.get(f"player{'1' if is_p1 else '2'}_odds", 0) > 1 else 0.5,
+                "mkt_prob": mkt_prob,
                 "edge": edge,
                 "odds": odds,
                 "confidence": confidence,
@@ -1143,6 +1168,8 @@ def _generate_value_bets(matches: list) -> list:
                 "match_type": m.get("match_type", "singles"),
                 "sofascore_url": m.get("sofascore_url", ""),
                 "sofascore_id": m.get("sofascore_id") or m.get("event_id") or 0,
+                "pm_url": m.get("pm_url", ""),
+                "reason": reason,
             })
 
     bets.sort(key=lambda x: -x["edge"])
