@@ -605,6 +605,7 @@ def _generate_smart_picks(matches: list) -> list:
 
             picks.append({
                 "pick": fav, "opponent": dog,
+                "player1": p1, "player2": p2,
                 "tournament": tourn, "tour": tour,
                 "round": m.get("round", ""),
                 "date": m.get("date", ""),
@@ -622,6 +623,10 @@ def _generate_smart_picks(matches: list) -> list:
                 "sofascore_url": m.get("sofascore_url", ""),
                 "sofascore_id": m.get("sofascore_id") or m.get("event_id") or 0,
                 "pm_url": m.get("pm_url", ""),
+                "player1_slug": m.get("player1_slug", ""),
+                "player1_ss_id": m.get("player1_ss_id", 0),
+                "player2_slug": m.get("player2_slug", ""),
+                "player2_ss_id": m.get("player2_ss_id", 0),
             })
 
         # === TOTAL GAMES OVER (when both players are strong servers) ===
@@ -880,24 +885,29 @@ def _format_event_name(tournament: str, tour: str = "") -> str:
 
 
 def _find_pm_url(pick_data: dict) -> str:
-    """Build best URL for a bet/pick: Polymarket > SofaScore match > SofaScore search."""
-    # 1) Polymarket URL (direct to betting page)
-    pm_url = pick_data.get("pm_url", "")
-    if pm_url and "polymarket.com" in pm_url:
-        return pm_url
+    """Build SofaScore player URL for the picked player."""
+    # Use player slug + ID if available (from SofaScore data)
+    pick_name = pick_data.get("pick", "")
+    p1 = pick_data.get("player1", "")
 
-    # 2) SofaScore match URL from sofascore_id
+    # Determine which player is the pick (p1 or p2)
+    if pick_name and _normalize_name(pick_name) == _normalize_name(p1 or pick_name):
+        slug = pick_data.get("player1_slug", "")
+        pid = pick_data.get("player1_ss_id", 0)
+    else:
+        slug = pick_data.get("player2_slug", "")
+        pid = pick_data.get("player2_ss_id", 0)
+
+    if slug and pid:
+        return f"https://www.sofascore.com/tennis/player/{slug}/{pid}"
+
+    # Fallback: SofaScore event page (match)
     ss_id = pick_data.get("sofascore_id") or 0
     if ss_id:
         return f"https://www.sofascore.com/event/{ss_id}"
 
-    # 3) SofaScore URL from cached data
-    ss_url = pick_data.get("sofascore_url", "")
-    if ss_url:
-        return ss_url
-
-    # 4) SofaScore search as fallback
-    player1 = pick_data.get("pick", "") or pick_data.get("player1", "")
+    # Last resort: SofaScore search
+    player1 = pick_name or p1
     player2 = pick_data.get("opponent", "") or pick_data.get("player2", "")
     q = f"{player1} {player2}".strip()
     if q:
@@ -1178,6 +1188,7 @@ def _generate_value_bets(matches: list) -> list:
             bets.append({
                 "pick": name,
                 "opponent": opp,
+                "player1": p1, "player2": p2,
                 "tournament": tourn,
                 "tour": tour,
                 "round": m.get("round", ""),
@@ -1195,6 +1206,10 @@ def _generate_value_bets(matches: list) -> list:
                 "sofascore_id": m.get("sofascore_id") or m.get("event_id") or 0,
                 "pm_url": m.get("pm_url", ""),
                 "reason": reason,
+                "player1_slug": m.get("player1_slug", ""),
+                "player1_ss_id": m.get("player1_ss_id", 0),
+                "player2_slug": m.get("player2_slug", ""),
+                "player2_ss_id": m.get("player2_ss_id", 0),
             })
 
     bets.sort(key=lambda x: -x["edge"])

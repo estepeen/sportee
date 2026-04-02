@@ -350,6 +350,12 @@ async def fetch_upcoming_with_odds(days: int = 2) -> list[dict]:
                 rnd = ev.get("round", {}).get("name", "")
                 is_live = status.get("isInProgress", False)
 
+                # Build player slug for SofaScore URL
+                home_slug = home.get("slug", "")
+                away_slug = away.get("slug", "")
+                home_id = home.get("id", 0)
+                away_id = away.get("id", 0)
+
                 all_upcoming.append({
                     "sofascore_id": ev.get("id"),
                     "date": date,
@@ -360,6 +366,10 @@ async def fetch_upcoming_with_odds(days: int = 2) -> list[dict]:
                     "player2": away_name,
                     "player1_rank": home.get("ranking") or 0,
                     "player2_rank": away.get("ranking") or 0,
+                    "player1_ss_id": home_id,
+                    "player2_ss_id": away_id,
+                    "player1_slug": home_slug,
+                    "player2_slug": away_slug,
                     "is_live": is_live,
                     "status": status.get("description", ""),
                 })
