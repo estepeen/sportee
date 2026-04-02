@@ -317,7 +317,7 @@ class BetManager:
 
         return reasons
 
-    def record_bet(self, rec: BetRecommendation) -> BetRecord:
+    def record_bet(self, rec: BetRecommendation, auto_save: bool = True) -> BetRecord:
         """Record a recommended bet."""
         record = BetRecord(
             id=f"{rec.team1_name[:8]}_{rec.market[:6]}_{datetime.utcnow().strftime('%H%M%S%f')[:10]}",
@@ -333,7 +333,8 @@ class BetManager:
             created_at=datetime.utcnow().isoformat(),
         )
         self.bets.append(asdict(record))
-        self.save()
+        if auto_save:
+            self.save()
         return record
 
     def resolve_bet(self, bet_id: str, result: str):

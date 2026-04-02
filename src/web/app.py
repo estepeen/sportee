@@ -1,6 +1,7 @@
 """Sportee - FastAPI web dashboard."""
 
 import json
+import logging
 import math
 import pickle
 import sqlite3
@@ -27,6 +28,7 @@ app = FastAPI(title="Sportee")
 _tennis_model = None
 _predictions_cache = {"matches": [], "picks": [], "updated": ""}
 _cache_computing = False
+_last_auto_resolve = ""  # ISO timestamp of last auto-resolve run
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
 bet_manager = BetManager()
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
@@ -68,7 +70,7 @@ def prob_to_odds(prob):
 
 def _recompute_cache():
     """Recompute predictions cache in background."""
-    global _predictions_cache, _cache_computing
+    global _predictions_cache, _cache_computing, _last_auto_resolve
     if _cache_computing:
         return
     _cache_computing = True
@@ -97,14 +99,29 @@ def _recompute_cache():
             v["source"] = "value_bets"
             v["match_type"] = "singles"
 
+        # Auto-resolve pending bets (max once per 12h to save API credits)
+        try:
+            now = datetime.now()
+            last = datetime.fromisoformat(_last_auto_resolve) if _last_auto_resolve else datetime.min
+            if (now - last).total_seconds() >= 43200:
+                import asyncio
+                from src.tennis.auto_resolve import resolve_from_sofascore
+                resolved = asyncio.run(resolve_from_sofascore(days=3))
+                _last_auto_resolve = now.isoformat()
+                if resolved:
+                    logging.getLogger(__name__).info(f"Auto-resolved {resolved} bets before recording new picks")
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"Auto-resolve in recompute failed: {e}")
+
         # Track picks for analytics + auto-add to My Positions
         try:
             track_picks(picks[:8], source="ai_picks")
             track_picks(value_bets, source="value_bets")
             bet_manager.load()
             _auto_record_all_picks(picks[:8] + value_bets)
-        except Exception:
-            pass
+        except Exception as e:
+            import traceback
+            logging.getLogger(__name__).error(f"Auto-record singles failed: {e}\n{traceback.format_exc()}")
 
         _predictions_cache = {
             "matches": upcoming,
@@ -150,8 +167,9 @@ def _recompute_cache():
             track_picks(dbl_value, source="value_bets_doubles")
             bet_manager.load()
             _auto_record_all_picks(dbl_picks[:5] + dbl_value)
-        except Exception:
-            pass
+        except Exception as e:
+            import traceback
+            logging.getLogger(__name__).error(f"Auto-record doubles failed: {e}\n{traceback.format_exc()}")
 
     except Exception as e:
         logging.getLogger(__name__).error(f"Doubles cache failed: {e}")
@@ -552,6 +570,7 @@ def _generate_smart_picks(matches: list) -> list:
                 "reason": pick_reason,
                 "match_type": m.get("match_type", "singles"),
                 "sofascore_url": m.get("sofascore_url", ""),
+                "sofascore_id": m.get("sofascore_id") or m.get("event_id") or 0,
             })
 
         # === TOTAL GAMES OVER (when both players are strong servers) ===
@@ -572,6 +591,7 @@ def _generate_smart_picks(matches: list) -> list:
                     "stars": 1,
                     "confidence": 3.0,
                     "reason": f"Close matchup ({round(p1_prob*100)}-{round(p2_prob*100)}), expect long match",
+                    "sofascore_id": m.get("sofascore_id") or m.get("event_id") or 0,
                 })
 
     # === LL FADE picks (qualifying seed fades) ===
@@ -839,29 +859,25 @@ def _find_pm_url(pick_data: dict) -> str:
 def _auto_record_all_picks(all_picks: list):
     """Auto-add all AI picks and value bets to My Positions."""
     import fcntl
+    logger = logging.getLogger(__name__)
     lock_path = DATA_DIR / ".bets.lock"
     try:
         lock_file = open(lock_path, "w")
         fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except (IOError, OSError):
-        return  # Another process is writing, skip
+        logger.warning("Auto-record skipped: lock file held by another process")
+        return
 
     bet_manager.load()  # Fresh read before adding
+
+    # Collect new picks that need recording (skip duplicates & resolved)
+    new_picks = []
     for p in all_picks:
         pick = p.get("pick", "")
         opp = p.get("opponent", "")
         bet_type = p.get("bet_type", "WIN")
         label = f"{pick} {bet_type}"
-        odds = p.get("odds", 2.0)
-        odds_val = p.get("odds", 1.5)
-        default_stake = 1000 if odds_val < 1.50 else 600 if odds_val < 2.00 else 300 if odds_val < 3.00 else 150
-        stake = p.get("suggested_stake", default_stake)
-        tourn = _format_event_name(p.get("tournament", ""), p.get("tour", ""))
-        rnd = p.get("round", "")
-        match_date = p.get("date", "")
-        prob = p.get("ml_prob", 0.5)
 
-        # Skip if already exists
         existing = any(
             b.get("market_label") == label and b.get("team1_name") == pick
             and b.get("status") == "pending"
@@ -870,7 +886,6 @@ def _auto_record_all_picks(all_picks: list):
         if existing:
             continue
 
-        # Skip if already resolved (same match, any label)
         already_resolved = any(
             b.get("team1_name") == pick and b.get("team2_name") == opp
             and b.get("market_label") == label
@@ -880,19 +895,61 @@ def _auto_record_all_picks(all_picks: list):
         if already_resolved:
             continue
 
+        new_picks.append(p)
+
+    if not new_picks:
+        try:
+            lock_file.close()
+        except Exception:
+            pass
+        return
+
+    # Scale stakes to fit available bankroll so ALL picks get recorded
+    total_needed = 0
+    for p in new_picks:
+        odds_val = p.get("odds", 2.0)
+        default_stake = 1000 if odds_val < 1.50 else 600 if odds_val < 2.00 else 300 if odds_val < 3.00 else 150
+        p["_stake"] = p.get("suggested_stake", default_stake)
+        total_needed += p["_stake"]
+
+    scale = 1.0
+    if total_needed > bet_manager.bankroll and total_needed > 0:
+        scale = max(bet_manager.bankroll / total_needed, 0.1)  # at least 10% of stake
+        logger.info(f"Auto-record: scaling stakes by {scale:.2f} (need ${total_needed}, have ${bet_manager.bankroll:.0f})")
+
+    from src.strategy.bet_manager import BetRecommendation
+
+    recorded = 0
+    for p in new_picks:
+        pick = p.get("pick", "")
+        opp = p.get("opponent", "")
+        bet_type = p.get("bet_type", "WIN")
+        label = f"{pick} {bet_type}"
+        odds = p.get("odds", 2.0)
+        stake = round(p["_stake"] * scale, 2)
+        tourn = _format_event_name(p.get("tournament", ""), p.get("tour", ""))
+        rnd = p.get("round", "")
+        match_date = p.get("date", "")
+        prob = p.get("ml_prob", 0.5)
+        match_id = p.get("match_id", 0) or p.get("sofascore_id", 0) or 0
+
         if stake > bet_manager.bankroll:
+            logger.warning(f"Auto-record: skip {pick} {bet_type} - stake ${stake} > bankroll ${bet_manager.bankroll:.0f}")
             continue
 
-        from src.strategy.bet_manager import BetRecommendation
+        # Deduct bankroll BEFORE record_bet so save() writes correct value
+        bet_manager.bankroll -= stake
+
         rec = BetRecommendation(
-            match_id=0, team1_name=pick, team2_name=opp,
+            match_id=match_id, team1_name=pick, team2_name=opp,
             event=tourn, tier="", market=bet_type,
             market_label=label, our_prob=prob, our_odds=odds,
             edge=p.get("edge", 0), confidence=0,
             kelly_stake_pct=0, stake_amount=stake,
             rating=0, reasons=[], market_odds=odds,
         )
-        record = bet_manager.record_bet(rec)
+        record = bet_manager.record_bet(rec, auto_save=False)
+
         # Enrich with all available data
         pm_url = _find_pm_url(p)
         source = p.get("source", "unknown")
@@ -908,7 +965,6 @@ def _auto_record_all_picks(all_picks: list):
                     b["created_at"] = match_date if "T" in match_date else f"{match_date}T12:00:00"
                 if p.get("reason"):
                     b["reason"] = p["reason"]
-                # Log bet metadata for analytics
                 b["bet_meta"] = {
                     "ml_prob": p.get("ml_prob", 0),
                     "mkt_prob": p.get("mkt_prob", 0),
@@ -922,12 +978,13 @@ def _auto_record_all_picks(all_picks: list):
                     "surface": p.get("surface", ""),
                 }
                 break
-        bet_manager.bankroll -= stake
+        recorded += 1
 
     bet_manager.save()
+    logger.info(f"Auto-recorded {recorded} picks to My Positions (bankroll: ${bet_manager.bankroll:.0f})")
     try:
         lock_file.close()
-    except:
+    except Exception:
         pass
 
 
@@ -1059,6 +1116,7 @@ def _generate_value_bets(matches: list) -> list:
                 "original_odds": m.get(f"player{'1' if is_p1 else '2'}_odds", 0),
                 "match_type": m.get("match_type", "singles"),
                 "sofascore_url": m.get("sofascore_url", ""),
+                "sofascore_id": m.get("sofascore_id") or m.get("event_id") or 0,
             })
 
     bets.sort(key=lambda x: -x["edge"])
