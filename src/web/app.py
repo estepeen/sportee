@@ -880,22 +880,23 @@ def _format_event_name(tournament: str, tour: str = "") -> str:
 
 
 def _find_pm_url(pick_data: dict) -> str:
-    """Build best URL for a bet/pick: Polymarket > SofaScore match > SofaScore player."""
-    import unicodedata
-    def _sd(s):
-        return "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
-
-    # 1) Polymarket URL (best — direct to betting page)
+    """Build best URL for a bet/pick: Polymarket > SofaScore match > SofaScore search."""
+    # 1) Polymarket URL (direct to betting page)
     pm_url = pick_data.get("pm_url", "")
     if pm_url and "polymarket.com" in pm_url:
         return pm_url
 
-    # 2) SofaScore match URL from cached data
+    # 2) SofaScore match URL from sofascore_id
+    ss_id = pick_data.get("sofascore_id") or 0
+    if ss_id:
+        return f"https://www.sofascore.com/event/{ss_id}"
+
+    # 3) SofaScore URL from cached data
     ss_url = pick_data.get("sofascore_url", "")
     if ss_url:
         return ss_url
 
-    # 3) Build SofaScore search URL as fallback
+    # 4) SofaScore search as fallback
     player1 = pick_data.get("pick", "") or pick_data.get("player1", "")
     player2 = pick_data.get("opponent", "") or pick_data.get("player2", "")
     q = f"{player1} {player2}".strip()
