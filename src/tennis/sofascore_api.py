@@ -309,7 +309,7 @@ async def fetch_upcoming_with_odds(days: int = 2) -> list[dict]:
     Typically ~10-15 upcoming main tour matches = ~12-17 requests.
     """
     usage = get_usage()
-    logger.info(f"SofaScore API usage: {usage['used']}/500 ({usage['remaining']} remaining)")
+    logger.info(f"SofaScore API usage: {usage['used']}/{usage['limit']} ({usage['remaining']} remaining)")
 
     if usage["remaining"] < 20:
         logger.warning("SofaScore API budget too low, skipping odds fetch")
