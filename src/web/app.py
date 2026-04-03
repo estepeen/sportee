@@ -962,19 +962,23 @@ def _auto_record_all_picks(all_picks: list):
         if existing:
             continue
 
+        # Only skip if resolved TODAY (same players can play again tomorrow)
+        pick_date = p.get("date", "")[:10]
         already_resolved = any(
             _norm(b.get("team1_name", "")) == norm_pick
             and _norm(b.get("team2_name", "")) == norm_opp
             and bet_type in b.get("market_label", "")
             and b.get("status") in ("won", "lost")
+            and b.get("created_at", "")[:10] == pick_date
             for b in bet_manager.bets
-        )
+        ) if pick_date else False
         if already_resolved:
             continue
 
         new_picks.append(p)
 
     if not new_picks:
+        logger.info(f"Auto-record: 0 new picks (all {len(all_picks)} filtered by dedup/resolved)")
         try:
             lock_file.close()
         except Exception:
