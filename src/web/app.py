@@ -158,6 +158,14 @@ def _recompute_cache():
 
     # Doubles (separate try so singles failure doesn't block doubles)
     try:
+        # Fetch fresh doubles data
+        try:
+            import asyncio
+            from src.tennis.doubles_sofascore import fetch_doubles_upcoming_with_odds
+            asyncio.run(fetch_doubles_upcoming_with_odds(days=2))
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"Doubles fetch failed, using cache: {e}")
+
         doubles_matches = load_doubles_odds()
         doubles_matches = _enrich_doubles_with_predictions(doubles_matches)
         for m in doubles_matches:
