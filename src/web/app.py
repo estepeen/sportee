@@ -611,29 +611,15 @@ def _generate_smart_picks(matches: list) -> list:
         if p1_ll or p2_ll:
             ll_penalty = True
 
-        # === WIN bet (odds 1.20 - 4.00) ===
+        # === WIN bet (odds 1.20 - 1.80) ===
         # Higher odds require higher conviction (edge + prob thresholds)
-        if 1.20 <= fav_odds <= 4.00 and fav_edge >= 5:
-            # Tiered conviction requirements
-            if fav_odds <= 1.85:
-                if fav_prob < 0.55: continue
-                stars = 3 if (fav_prob >= 0.75 and fav_edge >= 10) else 2 if fav_prob >= 0.65 else 1
-            elif fav_odds <= 2.50:
-                if fav_prob < 0.60 or fav_edge < 10: continue  # need higher conviction
-                stars = 2 if fav_edge >= 15 else 1
-            else:  # 2.50 - 4.00
-                if fav_prob < 0.65 or fav_edge < 15: continue  # high conviction only
-                stars = 2 if fav_edge >= 20 else 1
+        if 1.20 <= fav_odds <= 1.80 and fav_edge >= 5:
+            # Conviction: all bets <= 1.80 need 55%+ prob
+            if fav_prob < 0.55: continue
+            stars = 3 if (fav_prob >= 0.75 and fav_edge >= 10) else 2 if fav_prob >= 0.65 else 1
 
-            # Stake: lower for higher odds
-            if fav_odds < 1.50:
-                suggested_stake = 1000
-            elif fav_odds < 2.00:
-                suggested_stake = 600
-            elif fav_odds < 3.00:
-                suggested_stake = 300
-            else:
-                suggested_stake = 150  # max 4.00 = small stake
+            # Flat stake $1000 for all
+            suggested_stake = 1000
             # LL penalty: reduce stars and add warning to reason
             pick_reason = _build_pick_reason(fav, dog, fav_prob, fav_odds, fav_edge, m)
             if ll_penalty:
@@ -1164,7 +1150,7 @@ def _add_result_status(picks: list):
 def _generate_value_bets(matches: list) -> list:
     """Generate all value bets (edge >= 10%).
 
-    Rules: WIN only, odds 1.20-4.00, edge >= 10%, higher odds = higher conviction required.
+    Rules: WIN only, odds 1.20-1.80, edge >= 10%, higher odds = higher conviction required.
     """
     bets = []
     seen = set()
@@ -1190,7 +1176,7 @@ def _generate_value_bets(matches: list) -> list:
         ]:
             name, opp, prob, odds, edge, is_p1 = side
 
-            if edge < 10 or odds < 1.20 or odds > 4.00 or prob < 0.40:
+            if edge < 10 or odds < 1.20 or odds > 1.80 or prob < 0.40:
                 continue
 
             # Skip qualifying matches (LL risk)
@@ -1203,26 +1189,12 @@ def _generate_value_bets(matches: list) -> list:
                 continue
             seen.add(match_key)
 
-            # WIN only — tiered conviction
+            # WIN only — all <= 1.80
             bet_type = "WIN"
-            if odds <= 1.85:
-                confidence = "HIGH" if prob >= 0.70 else "MEDIUM" if prob >= 0.60 else "LOW"
-            elif odds <= 2.50:
-                if prob < 0.55 or edge < 12: continue
-                confidence = "MEDIUM" if prob >= 0.65 else "LOW"
-            else:  # 2.50-4.00
-                if prob < 0.60 or edge < 18: continue  # high conviction only
-                confidence = "LOW"
+            confidence = "HIGH" if prob >= 0.70 else "MEDIUM" if prob >= 0.60 else "LOW"
 
-            # Stake sizing
-            if odds < 1.50:
-                suggested_stake = 1000
-            elif odds < 2.00:
-                suggested_stake = 600
-            elif odds < 3.00:
-                suggested_stake = 300
-            else:
-                suggested_stake = 150
+            # Flat stake $1000
+            suggested_stake = 1000
 
             mkt_prob = 1 / m.get(f"player{'1' if is_p1 else '2'}_odds", 2) if m.get(f"player{'1' if is_p1 else '2'}_odds", 0) > 1 else 0.5
             reason = _build_pick_reason(name, opp, prob, odds, edge, m)
