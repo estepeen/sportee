@@ -652,27 +652,6 @@ def _generate_smart_picks(matches: list) -> list:
                 "player2_ss_id": m.get("player2_ss_id", 0),
             })
 
-        # === TOTAL GAMES OVER (when both players are strong servers) ===
-        total_line = m.get("total_games_line", 0)
-        total_over_odds = m.get("total_games_over", 0)
-        if total_line and total_over_odds >= 1.50:
-            # Competitive match = more games
-            if abs(p1_prob - p2_prob) < 0.20:  # close matchup
-                picks.append({
-                    "pick": f"Over {total_line}",
-                    "opponent": f"{p1} vs {p2}",
-                    "tournament": tourn, "tour": tour,
-                    "bet_type": "TOTAL",
-                    "ml_prob": 0.60,
-                    "mkt_prob": 1 / total_over_odds if total_over_odds > 1 else 0.5,
-                    "edge": round((0.60 - 1/total_over_odds) * 100, 1) if total_over_odds > 1 else 0,
-                    "odds": total_over_odds,
-                    "stars": 1,
-                    "confidence": 3.0,
-                    "reason": f"Close matchup ({round(p1_prob*100)}-{round(p2_prob*100)}), expect long match",
-                    "sofascore_id": m.get("sofascore_id") or m.get("event_id") or 0,
-                })
-
     # === LL FADE picks (qualifying seed fades) ===
     try:
         fade_picks = get_open_fade_picks()
