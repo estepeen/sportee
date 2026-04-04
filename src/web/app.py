@@ -245,6 +245,26 @@ async def dashboard(request: Request):
     all_value = value_bets + dbl_value
     all_value.sort(key=lambda x: -x.get("edge", 0))
 
+    # Odds breakdown for dashboard stats
+    resolved = [b for b in bet_manager.bets if b.get("status") in ("won", "lost")]
+    odds_breakdown = []
+    for threshold in [1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0, 2.1, 2.2, 2.3, 2.4, 2.5]:
+        subset = [b for b in resolved if b.get("our_odds", 99) <= threshold]
+        if not subset:
+            odds_breakdown.append({"threshold": threshold, "bets": 0, "wins": 0, "losses": 0, "winrate": 0, "staked": 0, "profit": 0, "roi": 0})
+            continue
+        w = sum(1 for b in subset if b["status"] == "won")
+        l = sum(1 for b in subset if b["status"] == "lost")
+        staked = sum(b.get("stake", 0) for b in subset)
+        profit = sum(b.get("profit", 0) for b in subset)
+        odds_breakdown.append({
+            "threshold": threshold,
+            "bets": len(subset), "wins": w, "losses": l,
+            "winrate": round(w / len(subset) * 100, 1),
+            "staked": round(staked), "profit": round(profit),
+            "roi": round(profit / staked * 100, 1) if staked else 0,
+        })
+
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
         "active_page": "portfolio",
@@ -256,6 +276,7 @@ async def dashboard(request: Request):
         "top_picks": all_picks,
         "value_bets": all_value,
         "sofascore_usage": ss_usage(),
+        "odds_breakdown": odds_breakdown,
     })
 
 
