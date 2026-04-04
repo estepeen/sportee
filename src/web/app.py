@@ -265,6 +265,33 @@ async def dashboard(request: Request):
             "roi": round(profit / staked * 100, 1) if staked else 0,
         })
 
+    # "Safe Favorites" strategy: odds <= 1.5, flat $1000 stake
+    safe_bets = [b for b in resolved if b.get("our_odds", 99) <= 1.5]
+    safe_w = sum(1 for b in safe_bets if b["status"] == "won")
+    safe_l = len(safe_bets) - safe_w
+    safe_flat = 1000
+    safe_profit = sum(safe_flat * (b["our_odds"] - 1) if b["status"] == "won" else -safe_flat for b in safe_bets)
+    safe_staked = safe_flat * len(safe_bets)
+    safe_strategy = {
+        "name": "Safe Favorites",
+        "desc": "Odds \u2264 1.50, flat $1,000",
+        "bets": len(safe_bets),
+        "wins": safe_w,
+        "losses": safe_l,
+        "winrate": round(safe_w / len(safe_bets) * 100, 1) if safe_bets else 0,
+        "staked": safe_staked,
+        "profit": round(safe_profit),
+        "roi": round(safe_profit / safe_staked * 100, 1) if safe_staked else 0,
+        "bankroll": round(1_000_000 + safe_profit),
+        "recent": sorted(
+            [{"label": b.get("market_label", ""), "odds": b.get("our_odds", 0),
+              "result": b["status"], "profit": round(safe_flat * (b["our_odds"] - 1), 0) if b["status"] == "won" else -safe_flat,
+              "event": b.get("event", ""), "date": b.get("created_at", "")[:10]}
+             for b in safe_bets],
+            key=lambda x: x["date"], reverse=True
+        )[:10],
+    }
+
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
         "active_page": "portfolio",
@@ -275,6 +302,7 @@ async def dashboard(request: Request):
         "recent_bets": recent_bets,
         "top_picks": all_picks,
         "value_bets": all_value,
+        "safe_strategy": safe_strategy,
         "sofascore_usage": ss_usage(),
         "odds_breakdown": odds_breakdown,
     })

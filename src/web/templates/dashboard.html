@@ -113,6 +113,55 @@
 </div>
 {% endif %}
 
+<!-- Safe Favorites Strategy -->
+{% if safe_strategy and safe_strategy.bets > 0 %}
+<div class="section mb-16">
+    <div class="section-header">
+        <div class="section-title">{{ safe_strategy.name }}</div>
+        <span class="badge" style="background:rgba(74,222,128,0.15);color:#4ade80;font-size:10px">{{ safe_strategy.desc }}</span>
+    </div>
+
+    <div class="stat-row" style="margin-bottom:12px">
+        <div class="stat-card" style="border:1px solid rgba(74,222,128,0.2)">
+            <div class="stat-label">Profit</div>
+            <div class="stat-value {% if safe_strategy.profit >= 0 %}green{% else %}red{% endif %}">{% if safe_strategy.profit >= 0 %}+{% endif %}${{ "{:,}".format(safe_strategy.profit) }}</div>
+            <div class="stat-sub">ROI: {{ safe_strategy.roi }}%</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Win Rate</div>
+            <div class="stat-value {% if safe_strategy.winrate >= 70 %}green{% elif safe_strategy.winrate >= 50 %}amber{% else %}red{% endif %}">{{ safe_strategy.winrate }}%</div>
+            <div class="stat-sub">{{ safe_strategy.wins }}W / {{ safe_strategy.losses }}L</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Total Bets</div>
+            <div class="stat-value">{{ safe_strategy.bets }}</div>
+            <div class="stat-sub">Staked: ${{ "{:,}".format(safe_strategy.staked) }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Bankroll</div>
+            <div class="stat-value">${{ "{:,}".format(safe_strategy.bankroll) }}</div>
+            <div class="stat-sub">Starting $1,000,000</div>
+        </div>
+    </div>
+
+    <div class="tbl-wrap"><table class="tbl" style="font-size:12px">
+        <thead><tr><th>Match</th><th>Event</th><th>Odds</th><th>Result</th><th>P&L</th><th>Date</th></tr></thead>
+        <tbody>
+        {% for r in safe_strategy.recent %}
+        <tr>
+            <td style="font-weight:600;color:var(--text)">{{ r.label }}</td>
+            <td style="color:var(--text-dim);font-size:11px">{{ r.event[:25] if r.event else '-' }}</td>
+            <td class="mono" style="color:var(--tertiary);font-weight:700">{{ r.odds }}</td>
+            <td><span class="badge {% if r.result == 'won' %}badge-live{% else %}{% endif %}" style="{% if r.result == 'lost' %}background:rgba(239,68,68,0.15);color:#ef4444{% endif %}">{{ r.result|upper }}</span></td>
+            <td class="mono" style="font-weight:700;color:{% if r.profit >= 0 %}var(--success){% else %}var(--error){% endif %}">{% if r.profit >= 0 %}+{% endif %}${{ "{:,.0f}".format(r.profit) }}</td>
+            <td style="color:var(--text-dim);font-size:11px">{{ r.date }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+</div>
+{% endif %}
+
 <!-- LIVE Matches (WebSocket) -->
 <div class="section mb-16" id="live-section" style="display:none">
     <div class="section-header">
