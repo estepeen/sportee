@@ -285,7 +285,6 @@ async def dashboard(request: Request):
         "value_bets": all_value,
         "safe_strategy": safe_strategy,
         "sofascore_usage": ss_usage(),
-        "odds_breakdown": odds_breakdown,
     })
 
 
