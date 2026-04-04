@@ -84,6 +84,42 @@
         {% if not a.by_source %}<div class="empty">No resolved picks yet</div>{% endif %}
     </div>
 
+    <!-- Singles / Doubles -->
+    <div class="bd-card">
+        <div class="bd-title">Singles / Doubles</div>
+        {% for name, d in a.by_match_type.items() %}
+        <div class="bd-row">
+            <div class="bd-name">
+                {% if name == 'Doubles' %}<span class="badge" style="background:#1e3a5f;color:#60a5fa;font-size:9px">DBL</span> {{ name }}
+                {% else %}<span class="badge" style="background:var(--surface-highest);color:var(--text-muted);font-size:9px">SGL</span> {{ name }}{% endif %}
+            </div>
+            <div class="bd-record">{{ d.wins }}W-{{ d.losses }}L</div>
+            <div class="bd-bar"><div class="bd-bar-fill" style="width:{{ d.winrate }}%;background:{% if d.winrate >= 55 %}var(--primary){% elif d.winrate >= 45 %}var(--warning){% else %}var(--error){% endif %}"></div></div>
+            <div class="bd-wr {% if d.winrate >= 55 %}green{% elif d.winrate < 45 %}red{% endif %}">{{ d.winrate }}%</div>
+            <div class="bd-roi {% if d.roi >= 0 %}green{% else %}red{% endif %}">{% if d.roi >= 0 %}+{% endif %}{{ d.roi }}%</div>
+        </div>
+        {% endfor %}
+        {% if not a.by_match_type %}<div class="empty">No data</div>{% endif %}
+    </div>
+
+    <!-- Detailed: Singles/Doubles x Men/Women -->
+    <div class="bd-card">
+        <div class="bd-title">By Category</div>
+        {% for name, d in a.by_match_detail.items() %}
+        <div class="bd-row">
+            <div class="bd-name">{{ name }}</div>
+            <div class="bd-record">{{ d.wins }}W-{{ d.losses }}L</div>
+            <div class="bd-bar"><div class="bd-bar-fill" style="width:{{ d.winrate }}%;background:{% if d.winrate >= 55 %}var(--primary){% elif d.winrate >= 45 %}var(--warning){% else %}var(--error){% endif %}"></div></div>
+            <div class="bd-wr {% if d.winrate >= 55 %}green{% elif d.winrate < 45 %}red{% endif %}">{{ d.winrate }}%</div>
+            <div class="bd-roi {% if d.roi >= 0 %}green{% else %}red{% endif %}">{% if d.roi >= 0 %}+{% endif %}{{ d.roi }}%</div>
+        </div>
+        {% endfor %}
+        {% if not a.by_match_detail %}<div class="empty">No data</div>{% endif %}
+    </div>
+</div>
+
+<!-- Second row: Bet Type + Confidence -->
+<div class="breakdown-grid">
     <!-- By Bet Type -->
     <div class="bd-card">
         <div class="bd-title">By Bet Type</div>
@@ -99,7 +135,7 @@
             <div class="bd-roi {% if d.roi >= 0 %}green{% else %}red{% endif %}">{% if d.roi >= 0 %}+{% endif %}{{ d.roi }}%</div>
         </div>
         {% endfor %}
-        {% if not a.by_type %}<div class="empty">No resolved picks yet</div>{% endif %}
+        {% if not a.by_type %}<div class="empty">No data</div>{% endif %}
     </div>
 
     <!-- By Confidence -->
@@ -118,7 +154,7 @@
             <div class="bd-roi {% if d.roi >= 0 %}green{% else %}red{% endif %}">{% if d.roi >= 0 %}+{% endif %}{{ d.roi }}%</div>
         </div>
         {% endfor %}
-        {% if not a.by_confidence %}<div class="empty">No resolved picks yet</div>{% endif %}
+        {% if not a.by_confidence %}<div class="empty">No data</div>{% endif %}
     </div>
 </div>
 

@@ -1357,6 +1357,17 @@ def _build_analytics_from_bets() -> dict:
             "date_added": b.get("created_at", ""),
         })
 
+    def match_type(b):
+        mt = b.get("match_type", "singles")
+        return "Doubles" if mt == "doubles" else "Singles"
+
+    def match_type_detail(b):
+        mt = b.get("match_type", "singles")
+        gender = _detect_gender(b)
+        if mt == "doubles":
+            return f"Doubles ({gender.replace(' (Men)', ' Men').replace(' (Women)', ' Women').replace('ATP', 'Men').replace('WTA', 'Women')})"
+        return f"Singles ({gender.replace(' (Men)', ' Men').replace(' (Women)', ' Women').replace('ATP', 'Men').replace('WTA', 'Women')})"
+
     return {
         "total": len(bets),
         "open": len(pending),
@@ -1371,6 +1382,8 @@ def _build_analytics_from_bets() -> dict:
         "by_tour": breakdown(tour_tier),
         "by_type": breakdown(bet_type),
         "by_confidence": breakdown(odds_range),
+        "by_match_type": breakdown(match_type),
+        "by_match_detail": breakdown(match_type_detail),
         "by_tournament": breakdown(lambda b: (b.get("event", "") or "unknown")[:20]),
         "recent": recent,
     }
