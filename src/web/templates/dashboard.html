@@ -76,43 +76,6 @@
     </div>
 </div>
 
-<!-- Odds Breakdown -->
-{% if odds_breakdown %}
-<div class="section mb-16">
-    <div class="section-header">
-        <div class="section-title">Performance by Odds</div>
-    </div>
-    <div class="tbl-wrap"><table class="tbl" style="font-size:12px">
-        <thead>
-            <tr>
-                <th>Max Odds</th>
-                <th>Bets</th>
-                <th>W/L</th>
-                <th>Win Rate</th>
-                <th>Staked</th>
-                <th>Profit</th>
-                <th>ROI</th>
-            </tr>
-        </thead>
-        <tbody>
-        {% for row in odds_breakdown %}
-        {% if row.bets > 0 %}
-        <tr>
-            <td><span class="mono" style="font-weight:700;color:var(--tertiary)">&le; {{ row.threshold }}</span></td>
-            <td class="mono">{{ row.bets }}</td>
-            <td class="mono">{{ row.wins }}W/{{ row.losses }}L</td>
-            <td><span class="mono {% if row.winrate >= 65 %}green{% elif row.winrate >= 50 %}amber{% else %}red{% endif %}" style="font-weight:700">{{ row.winrate }}%</span></td>
-            <td class="mono">${{ "{:,}".format(row.staked) }}</td>
-            <td class="mono" style="font-weight:700;color:{% if row.profit >= 0 %}var(--success){% else %}var(--error){% endif %}">{% if row.profit >= 0 %}+{% endif %}${{ "{:,}".format(row.profit) }}</td>
-            <td><span class="mono {% if row.roi >= 10 %}green{% elif row.roi >= 0 %}amber{% else %}red{% endif %}" style="font-weight:700">{{ row.roi }}%</span></td>
-        </tr>
-        {% endif %}
-        {% endfor %}
-        </tbody>
-    </table></div>
-</div>
-{% endif %}
-
 <!-- Safe Favorites Strategy -->
 {% if safe_strategy and safe_strategy.bets > 0 %}
 <div class="section mb-16">
