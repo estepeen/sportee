@@ -899,23 +899,24 @@ def _format_event_name(tournament: str, tour: str = "") -> str:
 
 
 def _find_pm_url(pick_data: dict) -> str:
-    """Build SofaScore player URL for the picked player."""
-    # Use player slug + ID if available (from SofaScore data)
+    """Get Polymarket URL for the bet (primary), SofaScore as fallback."""
+    # Prefer Polymarket URL (that's where we bet)
+    pm_url = pick_data.get("pm_url", "")
+    if pm_url:
+        return pm_url
+
+    # Fallback: SofaScore player page
     pick_name = pick_data.get("pick", "")
     p1 = pick_data.get("player1", "")
-
-    # Determine which player is the pick (p1 or p2)
     if pick_name and _normalize_name(pick_name) == _normalize_name(p1 or pick_name):
         slug = pick_data.get("player1_slug", "")
         pid = pick_data.get("player1_ss_id", 0)
     else:
         slug = pick_data.get("player2_slug", "")
         pid = pick_data.get("player2_ss_id", 0)
-
     if slug and pid:
         return f"https://www.sofascore.com/tennis/player/{slug}/{pid}"
 
-    # Fallback: SofaScore event page (match)
     ss_id = pick_data.get("sofascore_id") or 0
     if ss_id:
         return f"https://www.sofascore.com/event/{ss_id}"
