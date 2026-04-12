@@ -615,6 +615,14 @@ def _generate_smart_picks(matches: list) -> list:
         if any(w in tourn.lower() for w in ["qual", "kval", "qualifying"]):
             continue
 
+        # Skip WTA and Masters 1000 (only ATP Tour + Challenger)
+        t_lower = (tourn + " " + tour).lower()
+        if any(w in t_lower for w in ["wta", "women"]):
+            continue
+        if any(w in t_lower for w in ["miami", "indian wells", "rome", "madrid", "monte carlo",
+                                       "shanghai", "paris", "cincinnati", "canadian"]):
+            continue
+
         # LL warning: if a player is a Lucky Loser, flag in pick and reduce confidence
         p1_ll = m.get("p1_ll_risk")
         p2_ll = m.get("p2_ll_risk")
@@ -1173,6 +1181,14 @@ def _generate_value_bets(matches: list) -> list:
             # Skip qualifying matches (LL risk)
             tourn_lower = tourn.lower()
             if any(w in tourn_lower for w in ["qual", "kval", "qualifying"]):
+                continue
+
+            # Skip WTA and Masters 1000 (only ATP Tour + Challenger)
+            t_lower = (tourn + " " + tour).lower()
+            if any(w in t_lower for w in ["wta", "women"]):
+                continue
+            if any(w in t_lower for w in ["miami", "indian wells", "rome", "madrid", "monte carlo",
+                                           "shanghai", "paris", "cincinnati", "canadian"]):
                 continue
 
             match_key = tuple(sorted([name, opp]))
