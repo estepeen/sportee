@@ -193,7 +193,7 @@
     </div>
     <div class="nav-right">
         <div>
-            <div class="nav-balance">${{ bet_stats.bankroll|default(1000)|round(2) }}</div>
+            <div class="nav-balance" id="bankroll-val">{% if (bet_stats.total_profit|default(0)) >= 0 %}+{% endif %}${{ "{:,.0f}".format(bet_stats.total_profit|default(0)) }}</div>
             <div class="nav-balance-sub">{% if (bet_stats.roi|default(0)) >= 0 %}+{% endif %}{{ bet_stats.roi|default(0) }}% ROI</div>
         </div>
         <div class="nav-icons">
@@ -297,8 +297,9 @@ async function refreshPositions() {
         const statsEl = document.getElementById('bankroll-val');
         if (!tbody) return;
 
-        if (statsEl && data.bankroll !== undefined) {
-            statsEl.textContent = '$' + data.bankroll.toFixed(2);
+        if (statsEl && data.total_profit !== undefined) {
+            const p = data.total_profit;
+            statsEl.textContent = (p >= 0 ? '+' : '') + '$' + Math.round(p).toLocaleString();
         }
 
         tbody.innerHTML = '';

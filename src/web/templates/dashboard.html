@@ -55,14 +55,14 @@
 <!-- Stat Cards -->
 <div class="stat-row">
     <div class="stat-card stat-card-glow">
-        <div class="stat-label">Total Bankroll</div>
-        <div class="stat-value">${{ bet_stats.bankroll|default(1000)|round(2) }}</div>
-        <div class="stat-sub">Kelly-based sizing</div>
+        <div class="stat-label">Total P&L</div>
+        <div class="stat-value {% if (bet_stats.total_profit|default(0)) >= 0 %}green{% else %}red{% endif %}">{% if (bet_stats.total_profit|default(0)) >= 0 %}+{% endif %}${{ "{:,.0f}".format(bet_stats.total_profit|default(0)) }}</div>
+        <div class="stat-sub">{{ bet_stats.wins|default(0) }}W / {{ bet_stats.losses|default(0) }}L resolved</div>
     </div>
     <div class="stat-card">
-        <div class="stat-label">24H P&L</div>
-        <div class="stat-value {% if (bet_stats.total_profit|default(0)) >= 0 %}green{% else %}red{% endif %}">{% if (bet_stats.total_profit|default(0)) >= 0 %}+{% endif %}${{ bet_stats.total_profit|default(0) }}</div>
-        <div class="stat-sub">{{ bet_stats.wins|default(0) }}W / {{ bet_stats.losses|default(0) }}L resolved</div>
+        <div class="stat-label">ROI</div>
+        <div class="stat-value {% if (bet_stats.roi|default(0)) >= 0 %}green{% else %}red{% endif %}">{% if (bet_stats.roi|default(0)) >= 0 %}+{% endif %}{{ bet_stats.roi|default(0) }}%</div>
+        <div class="stat-sub">${{ "{:,.0f}".format(bet_stats.total_staked|default(0)) }} staked</div>
     </div>
     <div class="stat-card">
         <div class="stat-label">Open Exposure</div>

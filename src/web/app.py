@@ -1765,6 +1765,7 @@ async def api_positions():
     return JSONResponse({
         "bets": bets,
         "bankroll": stats.get("bankroll", 1000),
+        "total_profit": stats.get("total_profit", 0),
         "pending": stats.get("pending", 0),
     })
 
