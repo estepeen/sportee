@@ -473,6 +473,47 @@ def train_model(since_year=2020):
     logger.info(f"Global accuracy: {global_acc:.4f}, Samples: {len(df)}, Features: {len(FEATURE_COLS)}")
     for sk, sm in surface_models.items():
         logger.info(f"  {sk}: {sm['accuracy']:.4f} ({sm['training_samples']} samples)")
+
+    # Log accuracy to DB
+    try:
+        conn = get_tennis_db()
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS model_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trained_at TEXT NOT NULL,
+                model_type TEXT NOT NULL DEFAULT 'singles',
+                global_accuracy REAL DEFAULT 0,
+                hard_accuracy REAL DEFAULT 0,
+                clay_accuracy REAL DEFAULT 0,
+                grass_accuracy REAL DEFAULT 0,
+                training_samples INTEGER DEFAULT 0,
+                hard_samples INTEGER DEFAULT 0,
+                clay_samples INTEGER DEFAULT 0,
+                grass_samples INTEGER DEFAULT 0
+            )
+        """)
+        conn.execute("""
+            INSERT INTO model_history
+            (trained_at, model_type, global_accuracy, hard_accuracy, clay_accuracy, grass_accuracy,
+             training_samples, hard_samples, clay_samples, grass_samples)
+            VALUES (?, 'singles', ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            datetime.now().isoformat(),
+            global_acc,
+            surface_models.get("hard", {}).get("accuracy", 0),
+            surface_models.get("clay", {}).get("accuracy", 0),
+            surface_models.get("grass", {}).get("accuracy", 0),
+            len(df),
+            surface_models.get("hard", {}).get("training_samples", 0),
+            surface_models.get("clay", {}).get("training_samples", 0),
+            surface_models.get("grass", {}).get("training_samples", 0),
+        ))
+        conn.commit()
+        conn.close()
+        logger.info("Model accuracy logged to model_history table")
+    except Exception as e:
+        logger.warning(f"Failed to log model accuracy: {e}")
+
     return global_acc
 
 

@@ -1236,12 +1236,28 @@ async def analytics_page(request: Request):
             "roi": round(profit / staked * 100, 1) if staked else 0,
         })
 
+    # Model training history
+    model_history = []
+    try:
+        from src.tennis.database import get_tennis_db
+        conn = get_tennis_db()
+        rows = conn.execute("""
+            SELECT * FROM model_history
+            WHERE model_type = 'singles'
+            ORDER BY trained_at DESC LIMIT 30
+        """).fetchall()
+        conn.close()
+        model_history = [dict(r) for r in rows]
+    except Exception:
+        pass
+
     return templates.TemplateResponse("analytics.html", {
         "request": request,
         "active_page": "analytics",
         "bet_stats": bet_stats,
         "a": analytics,
         "odds_breakdown": odds_breakdown,
+        "model_history": model_history,
     })
 
 

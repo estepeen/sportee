@@ -189,6 +189,21 @@ def init_tennis_db():
     CREATE INDEX IF NOT EXISTS idx_dm_surface ON doubles_matches(surface);
     CREATE INDEX IF NOT EXISTS idx_de_player ON doubles_elo(player_id);
     CREATE INDEX IF NOT EXISTS idx_dpe_pair ON doubles_pair_elo(player1_id, player2_id);
+
+    -- Model training history
+    CREATE TABLE IF NOT EXISTS model_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        trained_at TEXT NOT NULL,
+        model_type TEXT NOT NULL DEFAULT 'singles',  -- singles, doubles
+        global_accuracy REAL DEFAULT 0,
+        hard_accuracy REAL DEFAULT 0,
+        clay_accuracy REAL DEFAULT 0,
+        grass_accuracy REAL DEFAULT 0,
+        training_samples INTEGER DEFAULT 0,
+        hard_samples INTEGER DEFAULT 0,
+        clay_samples INTEGER DEFAULT 0,
+        grass_samples INTEGER DEFAULT 0
+    );
     """)
     conn.commit()
     conn.close()

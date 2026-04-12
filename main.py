@@ -300,6 +300,7 @@ async def main():
         print("  doubles-init  - Fetch doubles history (2015-now) + build Elo")
         print("  doubles-update- Quick doubles update (recent matches + odds)")
         print("  doubles-train - Train doubles prediction model")
+        print("  retrain       - Daily retrain: tennis-update + train singles & doubles")
         return
 
     command = sys.argv[1]
@@ -361,6 +362,21 @@ async def main():
         acc = train_doubles_model()
         if acc:
             logger.info(f"Doubles model trained, accuracy: {acc:.4f}")
+    elif command == "retrain":
+        # Full daily retrain: update data + retrain all models
+        logger.info("=== Daily retrain: tennis update + model retrain ===")
+        await tennis_update()
+        from src.tennis.model import train_model as tennis_train_model
+        acc = tennis_train_model(since_year=2020)
+        logger.info(f"Tennis model retrained, global accuracy: {acc:.4f}")
+        try:
+            from src.tennis.doubles_model import train_doubles_model
+            dbl_acc = train_doubles_model()
+            if dbl_acc:
+                logger.info(f"Doubles model retrained, accuracy: {dbl_acc:.4f}")
+        except Exception as e:
+            logger.warning(f"Doubles retrain failed (non-critical): {e}")
+        logger.info("=== Daily retrain complete ===")
     elif command == "web":
         import uvicorn
         from src.web.app import app

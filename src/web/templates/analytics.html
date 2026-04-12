@@ -217,6 +217,40 @@
     </table></div>
 </div>
 
+<!-- Model Training History -->
+{% if model_history %}
+<div class="section mb-16">
+    <div class="section-header">
+        <div class="section-title">Model Accuracy History</div>
+        <span class="badge">{{ model_history|length }} runs</span>
+    </div>
+    <div class="tbl-wrap"><table class="tbl" style="font-size:12px">
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Global</th>
+                <th>Hard</th>
+                <th>Clay</th>
+                <th>Grass</th>
+                <th>Samples</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for m in model_history %}
+        <tr{% if loop.index == 1 %} style="background:rgba(74,222,128,0.05)"{% endif %}>
+            <td class="mono" style="font-size:11px;color:var(--text-faint)">{{ m.trained_at[:16]|replace('T', ' ') }}</td>
+            <td><span class="mono" style="font-weight:700;color:var(--tertiary)">{{ "%.2f"|format(m.global_accuracy * 100) }}%</span></td>
+            <td class="mono">{% if m.hard_accuracy %}{{ "%.2f"|format(m.hard_accuracy * 100) }}%{% else %}-{% endif %}</td>
+            <td class="mono">{% if m.clay_accuracy %}{{ "%.2f"|format(m.clay_accuracy * 100) }}%{% else %}-{% endif %}</td>
+            <td class="mono">{% if m.grass_accuracy %}{{ "%.2f"|format(m.grass_accuracy * 100) }}%{% else %}-{% endif %}</td>
+            <td class="mono" style="color:var(--text-faint)">{{ "{:,}".format(m.training_samples) }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+</div>
+{% endif %}
+
 <!-- Recent Picks -->
 <div class="section mb-16">
     <div class="section-header">
