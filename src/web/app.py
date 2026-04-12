@@ -354,7 +354,7 @@ def _parse_tournament_from_question(question: str) -> str:
 
 
 def _merge_tennis_odds(ss_matches: list, pm_matches: list) -> list:
-    """Merge SofaScore and Polymarket odds. SS has priority (real bookmaker odds)."""
+    """Merge SofaScore and Polymarket odds. PM odds preferred (we bet on Polymarket)."""
     seen = {}  # key -> index in merged
     merged = []
 
@@ -368,16 +368,28 @@ def _merge_tennis_odds(ss_matches: list, pm_matches: list) -> list:
 
     for m in pm_matches:
         key = (_normalize_name(m.get("player1", "")), _normalize_name(m.get("player2", "")))
-        if key in seen:
-            # Match exists from SofaScore — merge PM odds + URL into it
-            idx = seen[key]
+        key_rev = (key[1], key[0])
+        matched_key = key if key in seen else key_rev if key_rev in seen else None
+        if matched_key is not None:
+            # Match exists from SofaScore — merge PM data and USE PM odds
+            idx = seen[matched_key]
             existing = merged[idx]
+            swapped = (matched_key != key)  # PM player order differs from SS
             existing["pm_url"] = m.get("pm_url", "")
-            existing["player1_price"] = m.get("player1_price", 0)
-            existing["player2_price"] = m.get("player2_price", 0)
-            if not existing.get("player1_odds"):
-                existing["player1_odds"] = m.get("player1_odds", 0)
-                existing["player2_odds"] = m.get("player2_odds", 0)
+            if not swapped:
+                existing["player1_price"] = m.get("player1_price", 0)
+                existing["player2_price"] = m.get("player2_price", 0)
+            else:
+                existing["player1_price"] = m.get("player2_price", 0)
+                existing["player2_price"] = m.get("player1_price", 0)
+            # Always prefer Polymarket odds (that's where we bet)
+            if m.get("player1_odds"):
+                if not swapped:
+                    existing["player1_odds"] = m.get("player1_odds", 0)
+                    existing["player2_odds"] = m.get("player2_odds", 0)
+                else:
+                    existing["player1_odds"] = m.get("player2_odds", 0)
+                    existing["player2_odds"] = m.get("player1_odds", 0)
         else:
             # PM-only match — extract tournament from question
             if not m.get("tournament"):
