@@ -57,22 +57,22 @@
     <div class="stat-card stat-card-glow">
         <div class="stat-label">Total P&L</div>
         <div class="stat-value {% if (bet_stats.total_profit|default(0)) >= 0 %}green{% else %}red{% endif %}">{% if (bet_stats.total_profit|default(0)) >= 0 %}+{% endif %}${{ "{:,.0f}".format(bet_stats.total_profit|default(0)) }}</div>
-        <div class="stat-sub">{{ bet_stats.wins|default(0) }}W / {{ bet_stats.losses|default(0) }}L resolved</div>
+        <div class="stat-sub">{{ bet_stats.wins|default(0) }}W / {{ bet_stats.losses|default(0) }}L &middot; ROI {{ bet_stats.roi|default(0) }}%</div>
     </div>
     <div class="stat-card">
-        <div class="stat-label">ROI</div>
-        <div class="stat-value {% if (bet_stats.roi|default(0)) >= 0 %}green{% else %}red{% endif %}">{% if (bet_stats.roi|default(0)) >= 0 %}+{% endif %}{{ bet_stats.roi|default(0) }}%</div>
-        <div class="stat-sub">${{ "{:,.0f}".format(bet_stats.total_staked|default(0)) }} staked</div>
+        <div class="stat-label">Win Rate</div>
+        <div class="stat-value {% if (bet_stats.winrate|default(0)) >= 55 %}green{% elif (bet_stats.winrate|default(0)) >= 45 %}amber{% endif %}">{{ bet_stats.winrate|default(0) }}%</div>
+        <div class="stat-sub">{{ bet_stats.total_bets|default(0) }} total bets</div>
     </div>
     <div class="stat-card">
-        <div class="stat-label">Open Exposure</div>
-        <div class="stat-value">${{ bet_stats.pending_exposure|default(0) }}</div>
-        <div class="stat-sub">{{ bet_stats.pending|default(0) }} active contracts</div>
+        <div class="stat-label">24H P&L</div>
+        <div class="stat-value {% if (bet_stats.profit_24h|default(0)) >= 0 %}green{% else %}red{% endif %}">{% if (bet_stats.profit_24h|default(0)) >= 0 %}+{% endif %}${{ "{:,.0f}".format(bet_stats.profit_24h|default(0)) }}</div>
+        <div class="stat-sub">{{ bet_stats.wins_24h|default(0) }}W / {{ bet_stats.losses_24h|default(0) }}L today</div>
     </div>
     <div class="stat-card">
-        <div class="stat-label">Overall Win Rate</div>
-        <div class="stat-value {% if (bet_stats.winrate|default(0)) >= 55 %}green{% elif (bet_stats.winrate|default(0)) >= 45 %}amber{% else %}{% endif %}">{{ bet_stats.winrate|default(0) }}%</div>
-        <div class="stat-sub">{{ bet_stats.wins|default(0) + bet_stats.losses|default(0) }} total bets</div>
+        <div class="stat-label">24H Win Rate</div>
+        <div class="stat-value {% if (bet_stats.winrate_24h|default(0)) >= 55 %}green{% elif (bet_stats.winrate_24h|default(0)) >= 45 %}amber{% endif %}">{{ bet_stats.winrate_24h|default(0) }}%</div>
+        <div class="stat-sub">Last 24 hours</div>
     </div>
 </div>
 

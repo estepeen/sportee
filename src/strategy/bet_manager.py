@@ -387,6 +387,15 @@ class BetManager:
         total_staked = sum(b["stake"] for b in resolved)
         total_profit = sum(b["profit"] for b in resolved)
 
+        # 24h stats
+        from datetime import timedelta
+        cutoff_24h = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+        recent_24h = [b for b in resolved if b.get("created_at", "") >= cutoff_24h]
+        wins_24h = sum(1 for b in recent_24h if b["status"] == "won")
+        losses_24h = sum(1 for b in recent_24h if b["status"] == "lost")
+        profit_24h = sum(b["profit"] for b in recent_24h) if recent_24h else 0
+        winrate_24h = round(wins_24h / len(recent_24h) * 100, 1) if recent_24h else 0
+
         return {
             "total_bets": len(resolved),
             "wins": wins,
@@ -399,6 +408,10 @@ class BetManager:
             "pending": len(pending_bets),
             "pending_exposure": round(sum(b["stake"] for b in pending_bets), 2),
             "avg_odds": round(sum(b["our_odds"] for b in resolved) / len(resolved), 2) if resolved else 0,
+            "profit_24h": round(profit_24h, 2),
+            "winrate_24h": winrate_24h,
+            "wins_24h": wins_24h,
+            "losses_24h": losses_24h,
         }
 
     def auto_resolve_bets(self, completed_matches: list[dict]):
