@@ -223,31 +223,32 @@ class PolymarketClient:
         """Fetch real-time midpoint prices from Polymarket CLOB API.
 
         Returns {token_id: midpoint_price} dict.
+        Uses individual /midpoint calls (batch endpoint has URL length limits).
         """
         if not token_ids:
             return {}
 
         prices = {}
-        # CLOB API accepts batches — process in chunks of 50
-        for i in range(0, len(token_ids), 50):
-            batch = token_ids[i : i + 50]
+
+        async def _fetch_one(tid: str):
             try:
                 resp = await self.client.get(
-                    f"{CLOB_URL}/midpoints",
-                    params={"token_ids": ",".join(batch)},
+                    f"{CLOB_URL}/midpoint",
+                    params={"token_id": tid},
                 )
                 if resp.status_code == 200:
                     data = resp.json()
-                    # Response: {"token_id": "0.55", ...}
-                    for tid, val in data.items():
-                        try:
-                            prices[tid] = float(val)
-                        except (ValueError, TypeError):
-                            pass
-                else:
-                    logger.warning(f"CLOB midpoints error: {resp.status_code}")
-            except Exception as e:
-                logger.warning(f"CLOB midpoints request failed: {e}")
+                    # Response: {"mid": "0.55"} or {"mid": 0.55}
+                    mid = data.get("mid")
+                    if mid is not None:
+                        prices[tid] = float(mid)
+            except Exception:
+                pass
+
+        # Fetch in parallel, 10 at a time to avoid overwhelming API
+        for i in range(0, len(token_ids), 10):
+            batch = token_ids[i : i + 10]
+            await asyncio.gather(*[_fetch_one(tid) for tid in batch])
 
         return prices
 
