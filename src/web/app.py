@@ -20,8 +20,7 @@ from src.tennis.sofascore_api import load_sofascore_odds, get_usage as ss_usage
 from src.tennis.model import load_model as load_tennis_model, _get_avg_stats
 from src.tennis.picks_tracker import track_picks, resolve_picks, get_analytics
 from src.tennis.lucky_loser import get_ll_warnings_for_matches, check_ll_risk, get_open_fade_picks
-from src.tennis.doubles_sofascore import load_doubles_odds
-from src.tennis.doubles_model import load_doubles_model as _load_dbl_model, predict_doubles_match
+# Doubles removed — singles only
 from src.tennis.live_tracker import get_live_state, get_cached_live
 
 app = FastAPI(title="Sportee")
@@ -133,11 +132,13 @@ def _recompute_cache():
             logging.getLogger(__name__).warning(f"Auto-resolve in recompute failed: {e}")
 
         # Track picks for analytics + auto-add to My Positions
+        # ML_VETO picks are tracked for analytics but NOT recorded as bets
         try:
             track_picks(picks[:8], source="ai_picks")
             track_picks(value_bets, source="value_bets")
             bet_manager.load()
-            _auto_record_all_picks(picks[:8] + value_bets)
+            bettable_picks = [p for p in picks[:8] if p.get("ml_tag") != "ML_VETO"]
+            _auto_record_all_picks(bettable_picks + value_bets)
         except Exception as e:
             import traceback
             logging.getLogger(__name__).error(f"Auto-record singles failed: {e}\n{traceback.format_exc()}")
@@ -156,50 +157,7 @@ def _recompute_cache():
         import traceback
         logging.getLogger(__name__).error(f"Cache recompute failed: {e}\n{traceback.format_exc()}")
 
-    # Doubles (separate try so singles failure doesn't block doubles)
-    try:
-        # Fetch fresh doubles data
-        try:
-            import asyncio
-            from src.tennis.doubles_sofascore import fetch_doubles_upcoming_with_odds
-            asyncio.run(fetch_doubles_upcoming_with_odds(days=2))
-        except Exception as e:
-            logging.getLogger(__name__).warning(f"Doubles fetch failed, using cache: {e}")
-
-        doubles_matches = load_doubles_odds()
-        doubles_matches = _enrich_doubles_with_predictions(doubles_matches)
-        for m in doubles_matches:
-            m["match_type"] = "doubles"
-            # Map team names to player1/player2 for compatibility with smart picks
-            m.setdefault("player1", m.get("team1_name", ""))
-            m.setdefault("player2", m.get("team2_name", ""))
-        _predictions_cache["doubles"] = doubles_matches
-
-        # Generate doubles picks + value bets (same rules as singles)
-        dbl_picks = _generate_smart_picks(doubles_matches)
-        dbl_value = _generate_value_bets(doubles_matches)
-        for p in dbl_picks:
-            p["source"] = "ai_picks"
-            p["match_type"] = "doubles"
-        for v in dbl_value:
-            v["source"] = "value_bets"
-            v["match_type"] = "doubles"
-
-        _predictions_cache["doubles_picks"] = dbl_picks[:5]
-        _predictions_cache["doubles_value"] = dbl_value
-
-        # Auto-record doubles picks
-        try:
-            track_picks(dbl_picks[:5], source="ai_picks_doubles")
-            track_picks(dbl_value, source="value_bets_doubles")
-            bet_manager.load()
-            _auto_record_all_picks(dbl_picks[:5] + dbl_value)
-        except Exception as e:
-            import traceback
-            logging.getLogger(__name__).error(f"Auto-record doubles failed: {e}\n{traceback.format_exc()}")
-
-    except Exception as e:
-        logging.getLogger(__name__).error(f"Doubles cache failed: {e}")
+    # Doubles removed — singles only
 
     _cache_computing = False
 
@@ -235,15 +193,8 @@ async def dashboard(request: Request):
         import threading
         threading.Thread(target=_recompute_cache, daemon=True).start()
 
-    doubles = _predictions_cache.get("doubles", [])
-    dbl_picks = _predictions_cache.get("doubles_picks", [])
-    dbl_value = _predictions_cache.get("doubles_value", [])
-
-    # Merge singles + doubles picks
-    all_picks = top_picks + dbl_picks
-    all_picks.sort(key=lambda x: (-x.get("stars", 0), -x.get("confidence", 0)))
-    all_value = value_bets + dbl_value
-    all_value.sort(key=lambda x: -x.get("edge", 0))
+    all_picks = sorted(top_picks, key=lambda x: (-x.get("stars", 0), -x.get("confidence", 0)))
+    all_value = sorted(value_bets, key=lambda x: -x.get("edge", 0))
 
     # "Safe Favorites" strategy: odds <= 1.5, flat $1000 stake
     resolved = [b for b in bet_manager.bets if b.get("status") in ("won", "lost")]
@@ -279,7 +230,7 @@ async def dashboard(request: Request):
         "bet_stats": bet_stats,
         "tennis_matches": upcoming,
         "all_tennis_matches": all_matches,
-        "doubles_matches": doubles,
+        "doubles_matches": [],
         "recent_bets": recent_bets,
         "top_picks": all_picks,
         "value_bets": all_value,
@@ -483,7 +434,13 @@ def _enrich_with_predictions(matches: list) -> list:
             p1_raw = max(0.15, min(0.85, float(raw_prob[1])))
             p2_raw = 1.0 - p1_raw
 
-            # Blend with market odds (70% model, 30% market) to stay grounded
+            # Pure ML probabilities (NO blending with market)
+            m["ml_p1_prob"] = round(p1_raw, 4)
+            m["ml_p2_prob"] = round(p2_raw, 4)
+            m["ml_p1_odds"] = round(1 / p1_raw, 2) if p1_raw > 0.01 else 99.0
+            m["ml_p2_odds"] = round(1 / p2_raw, 2) if p2_raw > 0.01 else 99.0
+
+            # Market implied probabilities (normalized, no vig)
             mkt_p1 = m.get("player1_price", 0.5)
             mkt_p2 = m.get("player2_price", 0.5)
             mkt_sum = mkt_p1 + mkt_p2
@@ -493,21 +450,30 @@ def _enrich_with_predictions(matches: list) -> list:
             else:
                 mkt_p1_norm, mkt_p2_norm = 0.5, 0.5
 
-            p1_final = 0.7 * p1_raw + 0.3 * mkt_p1_norm
-            p2_final = 1.0 - p1_final
-
-            m["ml_p1_prob"] = round(p1_final, 4)
-            m["ml_p2_prob"] = round(p2_final, 4)
-            m["ml_p1_odds"] = round(1 / p1_final, 2) if p1_final > 0.01 else 99.0
-            m["ml_p2_odds"] = round(1 / p2_final, 2) if p2_final > 0.01 else 99.0
-
-            # Edge = blended model prob - market implied prob
-            m["p1_edge"] = round((p1_final - mkt_p1_norm) * 100, 1)
-            m["p2_edge"] = round((p2_final - mkt_p2_norm) * 100, 1)
+            # Edge = pure ML prob vs market prob
+            m["p1_edge"] = round((p1_raw - mkt_p1_norm) * 100, 1)
+            m["p2_edge"] = round((p2_raw - mkt_p2_norm) * 100, 1)
 
             # Value bet flag
             m["p1_value"] = m["p1_edge"] >= 5
             m["p2_value"] = m["p2_edge"] >= 5
+
+            # ML decision tag for each player side:
+            # CONFIRMED = ML agrees with market favorite and sees edge
+            # ML_VETO = market says favorite but ML disagrees (>10% lower)
+            # ML_PICK = ML sees edge that rules wouldn't catch
+            for side, ml_prob, mkt_prob, edge in [
+                ("p1", p1_raw, mkt_p1_norm, m["p1_edge"]),
+                ("p2", p2_raw, mkt_p2_norm, m["p2_edge"]),
+            ]:
+                if ml_prob >= mkt_prob and edge >= 5:
+                    m[f"{side}_ml_tag"] = "CONFIRMED"
+                elif mkt_prob >= 0.55 and (mkt_prob - ml_prob) >= 0.10:
+                    m[f"{side}_ml_tag"] = "ML_VETO"
+                elif edge >= 8 and mkt_prob < 0.55:
+                    m[f"{side}_ml_tag"] = "ML_PICK"
+                else:
+                    m[f"{side}_ml_tag"] = ""
 
             # Store features for pick reason builder
             m.update(features)
@@ -518,71 +484,16 @@ def _enrich_with_predictions(matches: list) -> list:
     return matches
 
 
-def _enrich_doubles_with_predictions(matches: list) -> list:
-    """Add ML predictions to doubles matches."""
-    dbl_model = _load_dbl_model()
-    if not dbl_model:
-        return matches
-
-    from src.tennis.database import get_tennis_db
-    from src.tennis.stats import find_player
-    import pandas as pd
-
-    conn = get_tennis_db()
-
-    for m in matches:
-        try:
-            # Find all 4 players
-            p1a = find_player(conn, m.get("team1_p1", ""))
-            p1b = find_player(conn, m.get("team1_p2", ""))
-            p2a = find_player(conn, m.get("team2_p1", ""))
-            p2b = find_player(conn, m.get("team2_p2", ""))
-            if not p1a or not p1b or not p2a or not p2b:
-                continue
-
-            result = predict_doubles_match(p1a["id"], p1b["id"], p2a["id"], p2b["id"])
-            if "error" in result:
-                continue
-
-            # Clamp + blend with market (same as singles)
-            raw_p1 = max(0.15, min(0.85, result["t1_win_prob"]))
-            raw_p2 = 1.0 - raw_p1
-
-            mkt_p1 = m.get("player1_price", 0.5)
-            mkt_p2 = m.get("player2_price", 0.5)
-            mkt_sum = mkt_p1 + mkt_p2
-            if mkt_sum > 0.01:
-                mkt_p1_n = mkt_p1 / mkt_sum
-                mkt_p2_n = mkt_p2 / mkt_sum
-            else:
-                mkt_p1_n, mkt_p2_n = 0.5, 0.5
-
-            p1_final = 0.7 * raw_p1 + 0.3 * mkt_p1_n
-            p2_final = 1.0 - p1_final
-
-            m["ml_p1_prob"] = round(p1_final, 4)
-            m["ml_p2_prob"] = round(p2_final, 4)
-            m["ml_p1_odds"] = round(1 / p1_final, 2) if p1_final > 0.01 else 99.0
-            m["ml_p2_odds"] = round(1 / p2_final, 2) if p2_final > 0.01 else 99.0
-            m["p1_edge"] = round((p1_final - mkt_p1_n) * 100, 1)
-            m["p2_edge"] = round((p2_final - mkt_p2_n) * 100, 1)
-            m["p1_value"] = m["p1_edge"] >= 5
-            m["p2_value"] = m["p2_edge"] >= 5
-        except Exception:
-            continue
-
-    conn.close()
-    return matches
+    # _enrich_doubles_with_predictions removed — singles only
 
 
 def _generate_smart_picks(matches: list) -> list:
-    """Generate smart bet recommendations.
+    """Generate smart bet recommendations with ML decision-making.
 
-    Strategy:
-    - Favorites (AI >= 65%, odds 1.30-1.80): recommend WIN
-    - Slight favorites (AI 55-65%, odds 1.40-2.20): recommend WIN if edge >= 5%
-    - Underdogs (AI < 50%): recommend +1.5 sets or handicap games instead of WIN
-    - Skip odds < 1.20 (no value) and > 2.50 for WIN bets
+    ML Tag System:
+    - CONFIRMED: Rules + ML agree → bet with full confidence
+    - ML_VETO: Rules would pick, but ML disagrees (>10% lower) → DON'T bet
+    - ML_PICK: Rules wouldn't pick, but ML sees big edge (>8%) → bet on ML signal
     """
     picks = []
 
@@ -601,15 +512,19 @@ def _generate_smart_picks(matches: list) -> list:
         if not p1_prob or not p1 or not p2:
             continue
 
-        # Determine favorite and underdog
+        # Determine favorite (by ML) and underdog
         if p1_prob >= p2_prob:
             fav, fav_prob, fav_odds, fav_edge = p1, p1_prob, p1_odds, p1_edge
             dog, dog_prob, dog_odds, dog_edge = p2, p2_prob, p2_odds, p2_edge
             fav_is_p1 = True
+            fav_ml_tag = m.get("p1_ml_tag", "")
+            dog_ml_tag = m.get("p2_ml_tag", "")
         else:
             fav, fav_prob, fav_odds, fav_edge = p2, p2_prob, p2_odds, p2_edge
             dog, dog_prob, dog_odds, dog_edge = p1, p1_prob, p1_odds, p1_edge
             fav_is_p1 = False
+            fav_ml_tag = m.get("p2_ml_tag", "")
+            dog_ml_tag = m.get("p1_ml_tag", "")
 
         # Skip qualifying matches (LL risk)
         if any(w in tourn.lower() for w in ["qual", "kval", "qualifying"]):
@@ -623,44 +538,45 @@ def _generate_smart_picks(matches: list) -> list:
                                        "shanghai", "paris", "cincinnati", "canadian"]):
             continue
 
-        # LL warning: if a player is a Lucky Loser, flag in pick and reduce confidence
+        # LL warning
         p1_ll = m.get("p1_ll_risk")
         p2_ll = m.get("p2_ll_risk")
-        ll_penalty = False
-        if p1_ll or p2_ll:
-            ll_penalty = True
+        ll_penalty = bool(p1_ll or p2_ll)
 
-        # === WIN bet (odds 1.20 - 1.80) ===
-        # Higher odds require higher conviction (edge + prob thresholds)
-        if 1.20 <= fav_odds <= 1.80 and fav_edge >= 5:
-            # Conviction: all bets <= 1.80 need 55%+ prob
-            if fav_prob < 0.55: continue
-            stars = 3 if (fav_prob >= 0.75 and fav_edge >= 10) else 2 if fav_prob >= 0.65 else 1
+        def _make_pick(pick, opp, prob, odds, edge, ml_tag, bet_type="WIN"):
+            stars = 3 if (prob >= 0.75 and edge >= 10) else 2 if prob >= 0.65 else 1
 
-            # Flat stake $1000 for all
-            suggested_stake = 1000
-            # LL penalty: reduce stars and add warning to reason
-            pick_reason = _build_pick_reason(fav, dog, fav_prob, fav_odds, fav_edge, m)
+            pick_reason = _build_pick_reason(pick, opp, prob, odds, edge, m)
             if ll_penalty:
                 ll_who = p1_ll or p2_ll
                 pick_reason += f" LL WARNING: {ll_who['warning']}"
                 stars = max(1, stars - 1)
 
-            picks.append({
-                "pick": fav, "opponent": dog,
+            # ML tag modifies confidence display
+            if ml_tag == "ML_VETO":
+                stars = 0  # Vetoed picks shown but greyed out
+                pick_reason = f"[ML VETO] ML prob {round(prob*100)}% is too low vs market. " + pick_reason
+            elif ml_tag == "ML_PICK":
+                pick_reason = f"[ML PICK] ML found edge outside normal range. " + pick_reason
+            elif ml_tag == "CONFIRMED":
+                pick_reason = f"[CONFIRMED] Rules + ML agree. " + pick_reason
+
+            return {
+                "pick": pick, "opponent": opp,
                 "player1": p1, "player2": p2,
                 "tournament": tourn, "tour": tour,
                 "round": m.get("round", ""),
                 "date": m.get("date", ""),
-                "bet_type": "WIN",
-                "ml_prob": fav_prob,
-                "mkt_prob": 1 / fav_odds if fav_odds > 1 else 0.5,
-                "edge": fav_edge,
-                "odds": fav_odds,
+                "bet_type": bet_type,
+                "ml_tag": ml_tag,
+                "ml_prob": prob,
+                "mkt_prob": 1 / odds if odds > 1 else 0.5,
+                "edge": edge,
+                "odds": odds,
                 "stars": stars,
-                "confidence": round(fav_prob * fav_edge / 10, 1),
-                "suggested_stake": suggested_stake,
-                "ll_risk": bool(ll_penalty),
+                "confidence": round(prob * edge / 10, 1) if ml_tag != "ML_VETO" else 0,
+                "suggested_stake": 1000 if ml_tag != "ML_VETO" else 0,
+                "ll_risk": ll_penalty,
                 "reason": pick_reason,
                 "match_type": m.get("match_type", "singles"),
                 "sofascore_url": m.get("sofascore_url", ""),
@@ -670,7 +586,28 @@ def _generate_smart_picks(matches: list) -> list:
                 "player1_ss_id": m.get("player1_ss_id", 0),
                 "player2_slug": m.get("player2_slug", ""),
                 "player2_ss_id": m.get("player2_ss_id", 0),
-            })
+            }
+
+        # === RULE-BASED PICKS (favorite, odds 1.20-1.80, edge >= 5%) ===
+        rules_would_pick = (1.20 <= fav_odds <= 1.80 and fav_edge >= 5 and fav_prob >= 0.55)
+
+        if rules_would_pick:
+            if fav_ml_tag == "ML_VETO":
+                # Rules say YES but ML says NO → show as vetoed
+                picks.append(_make_pick(fav, dog, fav_prob, fav_odds, fav_edge, "ML_VETO"))
+            else:
+                # Rules + ML agree (CONFIRMED or no strong ML opinion)
+                tag = "CONFIRMED" if fav_ml_tag == "CONFIRMED" else fav_ml_tag or "CONFIRMED"
+                picks.append(_make_pick(fav, dog, fav_prob, fav_odds, fav_edge, tag))
+
+        # === ML-ONLY PICKS (outside normal rules, but ML sees big edge) ===
+        if not rules_would_pick and fav_ml_tag == "ML_PICK" and fav_edge >= 8:
+            if fav_odds > 1.05:  # Sanity: must have some odds
+                picks.append(_make_pick(fav, dog, fav_prob, fav_odds, fav_edge, "ML_PICK"))
+
+        # Also check underdog side for ML_PICK
+        if dog_ml_tag == "ML_PICK" and dog_edge >= 8 and dog_odds > 1.05:
+            picks.append(_make_pick(dog, fav, dog_prob, dog_odds, dog_edge, "ML_PICK"))
 
     # === LL FADE picks (qualifying seed fades) ===
     try:
@@ -682,10 +619,11 @@ def _generate_smart_picks(matches: list) -> list:
                 "round": fp.get("round", "Qualifying"),
                 "date": fp.get("date", ""),
                 "bet_type": "LL_FADE",
-                "ml_prob": 0.65,  # assumed ~65% win rate vs tanking seed
+                "ml_tag": "",
+                "ml_prob": 0.65,
                 "mkt_prob": 0.5,
                 "edge": 15.0,
-                "odds": 0,  # no odds available for qualifying
+                "odds": 0,
                 "stars": 2,
                 "confidence": 6.0,
                 "suggested_stake": 300,
@@ -1797,6 +1735,14 @@ async def api_positions():
         "total_profit": stats.get("total_profit", 0),
         "pending": stats.get("pending", 0),
     })
+
+
+@app.get("/api/resolved-bets")
+async def api_resolved_bets():
+    """All resolved bets sorted by newest first — used by notification panel."""
+    resolved = [b for b in bet_manager.bets if b.get("status") in ("won", "lost")]
+    resolved.sort(key=lambda b: b.get("created_at", ""), reverse=True)
+    return JSONResponse(resolved)
 
 
 @app.post("/api/refresh-cache")

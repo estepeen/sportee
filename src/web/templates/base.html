@@ -394,11 +394,9 @@ function toggleNotifSidebar() {
 async function loadNotifications() {
     const list = document.getElementById('notif-list');
     try {
-        const r = await fetch('/api/positions');
-        const data = await r.json();
-        const bets = (data.bets || []).filter(b => b.status === 'won' || b.status === 'lost');
-        bets.sort((a, b) => (b.resolved_at || b.created_at || '').localeCompare(a.resolved_at || a.created_at || ''));
-        const recent = bets.slice(0, 20);
+        const r = await fetch('/api/resolved-bets');
+        const bets = await r.json();
+        const recent = bets.slice(0, 50);
 
         if (recent.length === 0) {
             list.innerHTML = '<div class="notif-empty">No resolved bets yet</div>';

@@ -219,8 +219,44 @@ class PolymarketClient:
 
         return None
 
+    async def _fetch_clob_prices(self, token_ids: list[str]) -> dict[str, float]:
+        """Fetch real-time midpoint prices from Polymarket CLOB API.
+
+        Returns {token_id: midpoint_price} dict.
+        """
+        if not token_ids:
+            return {}
+
+        prices = {}
+        # CLOB API accepts batches — process in chunks of 50
+        for i in range(0, len(token_ids), 50):
+            batch = token_ids[i : i + 50]
+            try:
+                resp = await self.client.get(
+                    f"{CLOB_URL}/midpoints",
+                    params={"token_ids": ",".join(batch)},
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    # Response: {"token_id": "0.55", ...}
+                    for tid, val in data.items():
+                        try:
+                            prices[tid] = float(val)
+                        except (ValueError, TypeError):
+                            pass
+                else:
+                    logger.warning(f"CLOB midpoints error: {resp.status_code}")
+            except Exception as e:
+                logger.warning(f"CLOB midpoints request failed: {e}")
+
+        return prices
+
     async def fetch_tennis_markets(self) -> list[dict]:
-        """Fetch active tennis moneyline markets from Polymarket."""
+        """Fetch active tennis moneyline markets from Polymarket.
+
+        Uses Gamma API for market discovery, then CLOB API for accurate
+        real-time prices (Gamma outcomePrices can be significantly stale).
+        """
         logger.info("Fetching Polymarket tennis markets...")
 
         resp = await self.client.get(f"{GAMMA_URL}/markets", params={
@@ -235,24 +271,62 @@ class PolymarketClient:
             return []
 
         raw_markets = resp.json()
-        matches = []
+
+        # --- Phase 1: collect valid markets + their CLOB token IDs ---
+        pending = []  # (market_dict, token_id_1, token_id_2)
+        all_token_ids = []
 
         for market in raw_markets:
             question = market.get("question", "")
             q_lower = question.lower()
 
-            # Skip doubles only
+            # Skip doubles
             if "doubles" in q_lower or "/" in question:
                 continue
 
             outcomes = json.loads(market.get("outcomes", "[]")) if isinstance(market.get("outcomes"), str) else market.get("outcomes", [])
-            prices = json.loads(market.get("outcomePrices", "[]")) if isinstance(market.get("outcomePrices"), str) else market.get("outcomePrices", [])
-
-            if len(outcomes) < 2 or len(prices) < 2:
+            if len(outcomes) < 2:
                 continue
 
-            p1, p2 = float(prices[0]), float(prices[1])
+            # Get CLOB token IDs for real-time prices
+            clob_raw = market.get("clobTokenIds", "[]")
+            clob_ids = json.loads(clob_raw) if isinstance(clob_raw, str) else (clob_raw or [])
+
+            if len(clob_ids) >= 2:
+                all_token_ids.extend(clob_ids[:2])
+                pending.append((market, clob_ids[0], clob_ids[1]))
+            else:
+                # No CLOB IDs — fall back to Gamma prices
+                pending.append((market, None, None))
+
+        # --- Phase 2: batch-fetch real CLOB midpoint prices ---
+        clob_prices = await self._fetch_clob_prices(all_token_ids)
+        logger.info(f"CLOB prices fetched for {len(clob_prices)}/{len(all_token_ids)} tokens")
+
+        # --- Phase 3: build match list with best available prices ---
+        matches = []
+        for market, tid1, tid2 in pending:
+            question = market.get("question", "")
+            q_lower = question.lower()
+
+            outcomes = json.loads(market.get("outcomes", "[]")) if isinstance(market.get("outcomes"), str) else market.get("outcomes", [])
+            if len(outcomes) < 2:
+                continue
+
+            # Prefer CLOB midpoint prices, fall back to Gamma outcomePrices
+            if tid1 and tid2 and tid1 in clob_prices and tid2 in clob_prices:
+                p1, p2 = clob_prices[tid1], clob_prices[tid2]
+                price_source = "clob"
+            else:
+                gamma_prices = json.loads(market.get("outcomePrices", "[]")) if isinstance(market.get("outcomePrices"), str) else market.get("outcomePrices", [])
+                if len(gamma_prices) < 2:
+                    continue
+                p1, p2 = float(gamma_prices[0]), float(gamma_prices[1])
+                price_source = "gamma"
+
             if p1 >= 0.95 or p2 >= 0.95:
+                continue
+            if p1 <= 0.01 or p2 <= 0.01:
                 continue
 
             # Detect tournament
@@ -286,9 +360,10 @@ class PolymarketClient:
                 "player2": outcomes[1],
                 "player1_price": p1,
                 "player2_price": p2,
-                "player1_odds": round(1 / p1, 2) if p1 > 0.01 else 99.0,
-                "player2_odds": round(1 / p2, 2) if p2 > 0.01 else 99.0,
+                "player1_odds": round(1 / p1, 2),
+                "player2_odds": round(1 / p2, 2),
                 "pm_url": pm_url,
+                "price_source": price_source,
                 "sport": "tennis",
                 "updated_at": datetime.utcnow().isoformat(),
             })
@@ -297,7 +372,8 @@ class PolymarketClient:
         with open(TENNIS_ODDS_FILE, "w") as f:
             json.dump(matches, f, indent=2)
 
-        logger.info(f"Fetched {len(matches)} tennis matches from Polymarket")
+        clob_count = sum(1 for m in matches if m.get("price_source") == "clob")
+        logger.info(f"Fetched {len(matches)} tennis matches ({clob_count} with CLOB prices, {len(matches) - clob_count} Gamma fallback)")
         return matches
 
     @staticmethod
