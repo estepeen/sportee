@@ -380,7 +380,7 @@ async def main():
     elif command == "web":
         import uvicorn
         from src.web.app import app
-        config = uvicorn.Config(app, host="127.0.0.1", port=3003, log_level="info")
+        config = uvicorn.Config(app, host="0.0.0.0", port=1000, log_level="info")
         server = uvicorn.Server(config)
         await server.serve()
     else:
