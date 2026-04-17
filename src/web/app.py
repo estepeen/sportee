@@ -25,10 +25,12 @@ from src.tennis.live_tracker import get_live_state, get_cached_live
 
 app = FastAPI(title="Sportee")
 _tennis_model = None
+_tennis_model_mtime = 0.0  # Track model file modification time
 _predictions_cache = {"matches": [], "picks": [], "updated": ""}
 _cache_computing = False
 _last_auto_resolve = ""  # ISO timestamp of last auto-resolve run
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
+_MODEL_PATH = DATA_DIR / "tennis_model.pkl"
 bet_manager = BetManager()
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
@@ -162,9 +164,24 @@ def _recompute_cache():
     _cache_computing = False
 
 
+def _periodic_refresh():
+    """Background loop: recompute picks every 30 minutes."""
+    import time
+    logger = logging.getLogger(__name__)
+    # Wait for initial startup cache to finish
+    time.sleep(120)
+    while True:
+        try:
+            logger.info("Periodic refresh: starting recompute")
+            _recompute_cache()
+        except Exception as e:
+            logger.error(f"Periodic refresh failed: {e}")
+        time.sleep(1800)  # 30 minutes
+
+
 @app.on_event("startup")
 async def startup_cache():
-    """Compute predictions cache on startup."""
+    """Compute predictions cache on startup + start periodic refresh."""
     # Reset bankroll to default if it's been depleted by old bug
     bet_manager.load()
     if bet_manager.bankroll < 10_000:
@@ -174,6 +191,7 @@ async def startup_cache():
 
     import threading
     threading.Thread(target=_recompute_cache, daemon=True).start()
+    threading.Thread(target=_periodic_refresh, daemon=True).start()
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -357,9 +375,16 @@ def _merge_tennis_odds(ss_matches: list, pm_matches: list) -> list:
 
 def _enrich_with_predictions(matches: list) -> list:
     """Add ML predictions + edge + LL warnings to each match."""
-    global _tennis_model
-    if _tennis_model is None:
+    global _tennis_model, _tennis_model_mtime
+    # Auto-reload model if file changed on disk (e.g. after retrain)
+    try:
+        current_mtime = _MODEL_PATH.stat().st_mtime if _MODEL_PATH.exists() else 0.0
+    except OSError:
+        current_mtime = 0.0
+    if _tennis_model is None or current_mtime > _tennis_model_mtime:
+        logging.getLogger(__name__).info("Loading tennis model (mtime: %.0f -> %.0f)", _tennis_model_mtime, current_mtime)
         _tennis_model = load_tennis_model()
+        _tennis_model_mtime = current_mtime
     if not _tennis_model:
         return matches
 
@@ -530,12 +555,9 @@ def _generate_smart_picks(matches: list) -> list:
         if any(w in tourn.lower() for w in ["qual", "kval", "qualifying"]):
             continue
 
-        # Skip WTA and Masters 1000 (only ATP Tour + Challenger)
+        # Skip WTA (keep all ATP: Tour, Challenger, Masters 1000, Grand Slams)
         t_lower = (tourn + " " + tour).lower()
         if any(w in t_lower for w in ["wta", "women"]):
-            continue
-        if any(w in t_lower for w in ["miami", "indian wells", "rome", "madrid", "monte carlo",
-                                       "shanghai", "paris", "cincinnati", "canadian"]):
             continue
 
         # LL warning
