@@ -3,7 +3,7 @@
 import json
 import logging
 import pickle
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import lightgbm as lgb
@@ -70,11 +70,14 @@ FEATURE_COLS = [
 SURFACE_FEATURE_COLS = [c for c in FEATURE_COLS if c != "surface_code"]
 
 LGB_PARAMS = dict(
-    n_estimators=500,
-    max_depth=6,
-    learning_rate=0.05,
-    num_leaves=31,
-    min_child_samples=50,
+    # Bumped 2026-05-08 from (n=500, lr=0.05, leaves=31, min_child=50, depth=6)
+    # to give the model more capacity now that we have 62k+ training rows.
+    # Early stopping (50) protects against overfit on the larger search space.
+    n_estimators=1500,
+    max_depth=7,
+    learning_rate=0.03,
+    num_leaves=63,
+    min_child_samples=20,
     subsample=0.8,
     colsample_bytree=0.8,
     reg_alpha=0.1,
@@ -379,6 +382,48 @@ def build_training_data(since_year=2020):
     return df
 
 
+def _recent_picks_roi(days: int = 14) -> tuple[float, int, float]:
+    """ROI and winrate over resolved picks in the trailing window.
+
+    Reads picks_history.json (auto-record output). Returns (roi, n, winrate).
+    Falls back to (0, 0, 0) if the file is missing or empty.
+    """
+    import json
+    picks_path = DATA_DIR / "picks_history.json"
+    try:
+        with open(picks_path) as f:
+            picks = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return 0.0, 0, 0.0
+
+    cutoff_iso = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    staked = 0.0
+    profit = 0.0
+    wins = 0
+    n = 0
+    for p in picks:
+        if p.get("status") not in ("WIN", "LOSS"):
+            continue
+        added = p.get("date_added", "") or ""
+        if added < cutoff_iso:
+            continue
+        stake = p.get("suggested_stake", 0) or 0
+        odds = p.get("odds", 0) or 0
+        if stake <= 0 or odds <= 1:
+            continue
+        staked += stake
+        if p["status"] == "WIN":
+            profit += stake * (odds - 1)
+            wins += 1
+        else:
+            profit -= stake
+        n += 1
+
+    if n == 0 or staked <= 0:
+        return 0.0, 0, 0.0
+    return profit / staked, n, wins / n
+
+
 def _train_single_model(X, y, label="global"):
     """Train a single LightGBM model with CV evaluation."""
     tscv = TimeSeriesSplit(n_splits=5)
@@ -535,6 +580,23 @@ def train_model(since_year=2020):
     }
 
     if promoted:
+        # Backup outgoing champion before overwriting; keep last 30 archives.
+        if MODEL_PATH.exists():
+            archive_dir = DATA_DIR / "models_archive"
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            archive_path = archive_dir / f"tennis_model_{stamp}.pkl"
+            try:
+                import shutil
+                shutil.copy2(MODEL_PATH, archive_path)
+                logger.info(f"  archived previous champion → {archive_path.name}")
+                # Prune: keep newest 30
+                archives = sorted(archive_dir.glob("tennis_model_*.pkl"))
+                for old in archives[:-30]:
+                    old.unlink()
+            except Exception as e:
+                logger.warning(f"  champion archive failed: {e}")
+
         with open(MODEL_PATH, "wb") as f:
             pickle.dump(model_data, f)
         logger.info(f"PROMOTED → saved to {MODEL_PATH}")
@@ -550,6 +612,14 @@ def train_model(since_year=2020):
     logger.info(f"Global CV accuracy: {global_acc:.4f}, Samples: {len(train_df)}, Features: {len(FEATURE_COLS)}")
     for sk, sm in surface_models.items():
         logger.info(f"  {sk}: {sm['accuracy']:.4f} ({sm['training_samples']} samples)")
+
+    # Production ROI on resolved picks (last 14 days). Informational, not gating.
+    recent_roi, recent_picks_n, recent_winrate = _recent_picks_roi(days=14)
+    if recent_picks_n:
+        logger.info(
+            f"  recent ROI ({recent_picks_n} resolved picks, last 14d): "
+            f"{recent_roi*100:+.2f}% (winrate {recent_winrate*100:.1f}%)"
+        )
 
     # Log to DB
     try:
@@ -575,6 +645,9 @@ def train_model(since_year=2020):
             ("validation_accuracy", "REAL"),
             ("champion_validation_accuracy", "REAL"),
             ("promoted", "INTEGER DEFAULT 1"),
+            ("recent_roi", "REAL"),
+            ("recent_picks_n", "INTEGER DEFAULT 0"),
+            ("recent_winrate", "REAL"),
         ]:
             if col not in existing:
                 conn.execute(f"ALTER TABLE model_history ADD COLUMN {col} {ddl}")
@@ -582,8 +655,9 @@ def train_model(since_year=2020):
             INSERT INTO model_history
             (trained_at, model_type, global_accuracy, hard_accuracy, clay_accuracy, grass_accuracy,
              training_samples, hard_samples, clay_samples, grass_samples,
-             validation_accuracy, champion_validation_accuracy, promoted)
-            VALUES (?, 'singles', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             validation_accuracy, champion_validation_accuracy, promoted,
+             recent_roi, recent_picks_n, recent_winrate)
+            VALUES (?, 'singles', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             datetime.now().isoformat(),
             global_acc,
@@ -597,6 +671,9 @@ def train_model(since_year=2020):
             val_acc_candidate,
             val_acc_champion,
             1 if promoted else 0,
+            recent_roi,
+            recent_picks_n,
+            recent_winrate,
         ))
         conn.commit()
         conn.close()
