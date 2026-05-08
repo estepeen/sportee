@@ -929,9 +929,40 @@ def _auto_record_all_picks(all_picks: list):
     batch_seen = set()  # track within current batch to avoid ai_picks + value_bets dupes
     skipped_quality = 0
     skipped_too_close = 0
+    skipped_stale_player = 0
     now_utc = datetime.utcnow()
     from datetime import timedelta
     MIN_LEAD = timedelta(hours=2)
+
+    # Recency check: refuse to record bets on players whose last match in the
+    # DB is older than MAX_LAYOFF_DAYS. Catches return-from-injury matches
+    # where odds are misleading (Djokovic vs Prizmic case).
+    from src.tennis.database import get_tennis_db
+    from src.tennis.stats import find_player as _find_player_for_recency
+    MAX_LAYOFF_DAYS = 20
+    stale_cutoff = (datetime.utcnow() - timedelta(days=MAX_LAYOFF_DAYS)).strftime("%Y-%m-%d")
+    _recency_conn = get_tennis_db()
+    _recency_cache: dict[str, bool] = {}
+
+    def _player_stale(name: str) -> bool:
+        if name in _recency_cache:
+            return _recency_cache[name]
+        try:
+            player = _find_player_for_recency(_recency_conn, name)
+            if not player:
+                _recency_cache[name] = True
+                return True
+            row = _recency_conn.execute(
+                "SELECT MAX(date) FROM tennis_matches WHERE winner_id = ? OR loser_id = ?",
+                (player["id"], player["id"])
+            ).fetchone()
+            last_date = row[0] if row else None
+            stale = (not last_date) or (last_date < stale_cutoff)
+        except Exception:
+            stale = False  # don't block on DB errors
+        _recency_cache[name] = stale
+        return stale
+
     for p in all_picks:
         # Quality filter: odds in [MIN_ODDS, MAX_ODDS] window, prob above floor
         odds = p.get("odds", 0) or 0
@@ -954,6 +985,13 @@ def _auto_record_all_picks(all_picks: list):
             continue
         if start_dt - now_utc < MIN_LEAD:
             skipped_too_close += 1
+            continue
+
+        # Stale-player guard
+        pick_name = p.get("pick", "")
+        opp_name = p.get("opponent", "")
+        if _player_stale(pick_name) or _player_stale(opp_name):
+            skipped_stale_player += 1
             continue
 
         pick = p.get("pick", "")
@@ -995,7 +1033,15 @@ def _auto_record_all_picks(all_picks: list):
         new_picks.append(p)
 
     if not new_picks:
-        logger.info(f"Auto-record: 0 new picks (filtered {skipped_quality} on quality, rest on dedup/resolved out of {len(all_picks)})")
+        logger.info(
+            f"Auto-record: 0 new picks (filtered {skipped_quality} quality, "
+            f"{skipped_too_close} <2h-to-start, {skipped_stale_player} stale-player, "
+            f"rest on dedup/resolved out of {len(all_picks)})"
+        )
+        try:
+            _recency_conn.close()
+        except Exception:
+            pass
         try:
             lock_file.close()
         except Exception:
@@ -1091,10 +1137,15 @@ def _auto_record_all_picks(all_picks: list):
         recorded += 1
 
     bet_manager.save()
+    try:
+        _recency_conn.close()
+    except Exception:
+        pass
     logger.info(
         f"Auto-recorded {recorded} picks to My Positions "
         f"(skipped {skipped_quality} on quality filter, "
         f"{skipped_too_close} on <2h-to-start filter, "
+        f"{skipped_stale_player} on stale-player ({MAX_LAYOFF_DAYS}d) filter, "
         f"bankroll: ${bet_manager.bankroll:.0f})"
     )
     try:
