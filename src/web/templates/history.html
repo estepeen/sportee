@@ -46,10 +46,6 @@
         <a href="/history?status=won" class="pager-btn {% if filter_status == 'won' %}active{% endif %}">Won</a>
         <a href="/history?status=lost" class="pager-btn {% if filter_status == 'lost' %}active{% endif %}">Lost</a>
         <a href="/history?status=void" class="pager-btn {% if filter_status == 'void' %}active{% endif %}">Void</a>
-        <span style="width:1px;background:var(--border);margin:0 4px"></span>
-        <a href="/history{% if filter_status %}?status={{ filter_status }}{% endif %}" class="pager-btn {% if not filter_type %}active{% endif %}">All Types</a>
-        <a href="/history?type=singles{% if filter_status %}&status={{ filter_status }}{% endif %}" class="pager-btn {% if filter_type == 'singles' %}active{% endif %}">Singles</a>
-        <a href="/history?type=doubles{% if filter_status %}&status={{ filter_status }}{% endif %}" class="pager-btn {% if filter_type == 'doubles' %}active{% endif %}">Doubles</a>
     </div>
     <div class="tbl-wrap"><table class="tbl">
         <thead>
@@ -83,8 +79,7 @@
                 </div>
             </td>
             <td>
-                {% if b.match_type == 'doubles' %}<span class="badge" style="background:#1e3a5f;color:#60a5fa;font-size:8px">DBL</span>
-                {% else %}<span class="badge" style="background:var(--surface-highest);color:var(--text-muted);font-size:8px">SGL</span>{% endif %}
+                <span class="badge" style="background:var(--surface-highest);color:var(--text-muted);font-size:8px">SGL</span>
             </td>
             <td>
                 <div style="font-weight:700;color:#4ade80;font-family:'Space Grotesk',sans-serif;display:flex;align-items:center;gap:6px">

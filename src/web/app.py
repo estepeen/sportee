@@ -76,7 +76,6 @@ from src.tennis.sofascore_api import load_sofascore_odds, get_usage as ss_usage
 from src.tennis.model import load_model as load_tennis_model, _get_avg_stats
 from src.tennis.picks_tracker import track_picks, resolve_picks, get_analytics
 from src.tennis.lucky_loser import get_ll_warnings_for_matches, check_ll_risk, get_open_fade_picks
-# Doubles removed — singles only
 from src.tennis.live_tracker import get_live_state, get_cached_live
 
 app = FastAPI(title="Sportee")
@@ -210,16 +209,11 @@ def _recompute_cache():
             "all_matches": all_matches,
             "picks": picks[:8],
             "value_bets": value_bets,
-            "doubles": [],
-            "doubles_picks": [],
-            "doubles_value": [],
             "updated": datetime.now().isoformat(),
         }
     except Exception as e:
         import traceback
         logging.getLogger(__name__).error(f"Cache recompute failed: {e}\n{traceback.format_exc()}")
-
-    # Doubles removed — singles only
 
     _cache_computing = False
 
@@ -527,9 +521,6 @@ def _enrich_with_predictions(matches: list) -> list:
     return matches
 
 
-    # _enrich_doubles_with_predictions removed — singles only
-
-
 def _generate_smart_picks(matches: list) -> list:
     """Generate smart bet recommendations with ML decision-making.
 
@@ -577,7 +568,7 @@ def _generate_smart_picks(matches: list) -> list:
         t_lower = (tourn + " " + tour).lower()
         if any(w in t_lower for w in ["wta", "women", "ladies"]):
             continue
-        if m.get("match_type") == "doubles" or "/" in p1 or "/" in p2:
+        if "/" in p1 or "/" in p2:
             continue
 
         # LL warning
@@ -1243,7 +1234,7 @@ def _generate_value_bets(matches: list) -> list:
             t_lower = (tourn + " " + tour).lower()
             if any(w in t_lower for w in ["wta", "women", "ladies"]):
                 continue
-            if m.get("match_type") == "doubles" or "/" in name or "/" in opp:
+            if "/" in name or "/" in opp:
                 continue
             if any(w in t_lower for w in ["miami", "indian wells", "rome", "madrid", "monte carlo",
                                            "shanghai", "paris", "cincinnati", "canadian"]):
@@ -1462,14 +1453,10 @@ def _build_analytics_from_bets() -> dict:
         })
 
     def match_type(b):
-        mt = b.get("match_type", "singles")
-        return "Doubles" if mt == "doubles" else "Singles"
+        return "Singles"
 
     def match_type_detail(b):
-        mt = b.get("match_type", "singles")
         gender = _detect_gender(b)
-        if mt == "doubles":
-            return f"Doubles ({gender.replace(' (Men)', ' Men').replace(' (Women)', ' Women').replace('ATP', 'Men').replace('WTA', 'Women')})"
         return f"Singles ({gender.replace(' (Men)', ' Men').replace(' (Women)', ' Women').replace('ATP', 'Men').replace('WTA', 'Women')})"
 
     return {

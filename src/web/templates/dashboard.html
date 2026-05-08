@@ -180,9 +180,7 @@ function _fmtMoney(n) {
 }
 
 function _renderActiveRow(b) {
-    const badge = b.match_type === 'doubles'
-        ? '<span class="badge" style="background:#1e3a5f;color:#60a5fa;font-size:8px">DBL</span>'
-        : '<span class="badge" style="background:var(--surface-highest);color:var(--text-muted);font-size:8px">SGL</span>';
+    const badge = '<span class="badge" style="background:var(--surface-highest);color:var(--text-muted);font-size:8px">SGL</span>';
     const fallback = (b.odds_source && b.odds_source !== 'polymarket')
         ? ' <span title="Fallback: SofaScore odds — Polymarket may differ" style="color:#ef4444;font-weight:700;font-size:11px;font-family:\'Manrope\',sans-serif">(F)</span>'
         : '';
@@ -229,9 +227,7 @@ function _renderActiveRow(b) {
 }
 
 function _renderHistoryRow(b) {
-    const badge = b.match_type === 'doubles'
-        ? '<span class="badge" style="background:#1e3a5f;color:#60a5fa;font-size:8px">DBL</span>'
-        : '<span class="badge" style="background:var(--surface-highest);color:var(--text-muted);font-size:8px">SGL</span>';
+    const badge = '<span class="badge" style="background:var(--surface-highest);color:var(--text-muted);font-size:8px">SGL</span>';
     const fallback = (b.odds_source && b.odds_source !== 'polymarket')
         ? ' <span title="Odds came from SofaScore (Polymarket missing) — actual fill may differ" style="color:#ef4444;font-weight:700;font-size:11px;font-family:\'Manrope\',sans-serif">(F)</span>'
         : '';
