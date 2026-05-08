@@ -357,6 +357,9 @@ def _merge_tennis_odds(ss_matches: list, pm_matches: list) -> list:
             existing = merged[idx]
             swapped = (matched_key != key)  # PM player order differs from SS
             existing["pm_url"] = m.get("pm_url", "")
+            # Prefer PM start_time if SS didn't have one
+            if m.get("start_time") and not existing.get("start_time"):
+                existing["start_time"] = m["start_time"]
             if not swapped:
                 existing["player1_price"] = m.get("player1_price", 0)
                 existing["player2_price"] = m.get("player2_price", 0)
@@ -1896,6 +1899,27 @@ async def api_resolved_bets():
     resolved = [b for b in bet_manager.bets if b.get("status") in ("won", "lost")]
     resolved.sort(key=lambda b: b.get("created_at", ""), reverse=True)
     return JSONResponse(resolved)
+
+
+@app.get("/api/recent-bets")
+async def api_recent_bets(limit: int = 50):
+    """Pending (NEW) + resolved (W/L) bets merged, newest activity first.
+
+    Each entry gets `notif_type` ('new' | 'won' | 'lost') and `notif_ts` so the
+    notification panel can render and sort uniformly.
+    """
+    bet_manager.load()
+    items = []
+    for b in bet_manager.bets:
+        st = b.get("status")
+        if st == "pending":
+            ts = b.get("recorded_at") or b.get("created_at") or ""
+            items.append({**b, "notif_type": "new", "notif_ts": ts})
+        elif st in ("won", "lost"):
+            ts = b.get("resolved_at") or b.get("created_at") or ""
+            items.append({**b, "notif_type": st, "notif_ts": ts})
+    items.sort(key=lambda b: b.get("notif_ts", ""), reverse=True)
+    return JSONResponse(items[:max(1, min(limit, 200))])
 
 
 def _resync_pending_bet_odds():

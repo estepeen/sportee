@@ -3,7 +3,7 @@
 import asyncio
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -353,6 +353,16 @@ class PolymarketClient:
                     slug = events[0].get("slug", "") if isinstance(events[0], dict) else ""
             pm_url = f"https://polymarket.com/event/{slug}" if slug else ""
 
+            # gameStartTime is "YYYY-MM-DD HH:MM:SS+00" — normalize to ISO with T
+            raw_start = market.get("gameStartTime", "") or ""
+            start_time = ""
+            if raw_start:
+                try:
+                    cleaned = raw_start.replace(" ", "T").replace("+00", "+00:00")
+                    start_time = datetime.fromisoformat(cleaned).astimezone(timezone.utc).replace(tzinfo=None).isoformat()
+                except (ValueError, TypeError):
+                    start_time = ""
+
             matches.append({
                 "question": question,
                 "tournament": tournament,
@@ -366,6 +376,7 @@ class PolymarketClient:
                 "pm_url": pm_url,
                 "price_source": price_source,
                 "sport": "tennis",
+                "start_time": start_time,
                 "updated_at": datetime.utcnow().isoformat(),
             })
 
