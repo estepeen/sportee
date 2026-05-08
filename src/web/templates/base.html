@@ -404,6 +404,24 @@ function toggleNotifSidebar() {
     if (_notifOpen) loadNotifications();
 }
 
+function _relativeTime(iso) {
+    if (!iso) return '';
+    const t = new Date(iso.endsWith('Z') ? iso : iso + 'Z').getTime();
+    if (!t) return '';
+    const diff = Math.max(0, Date.now() - t);
+    const s = Math.floor(diff / 1000);
+    if (s < 60) return s <= 5 ? 'just now' : `${s}s ago`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m} min ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h ago`;
+    const d = Math.floor(h / 24);
+    if (d < 30) return `${d}d ago`;
+    const mo = Math.floor(d / 30);
+    if (mo < 12) return `${mo}mo ago`;
+    return `${Math.floor(mo / 12)}y ago`;
+}
+
 async function loadNotifications() {
     const list = document.getElementById('notif-list');
     try {
@@ -432,8 +450,7 @@ async function loadNotifications() {
                 icon = '+'; cls = 'new';
                 badgeHtml = `<span style="color:#eab308;font-weight:700">NEW</span>`;
             }
-            const date = (b.notif_ts || '').slice(0, 10);
-            const time = (b.notif_ts || '').slice(11, 16);
+            const rel = _relativeTime(b.notif_ts);
             const result = b.actual_result || '';
 
             html += `<div class="notif-item">
@@ -441,7 +458,7 @@ async function loadNotifications() {
                 <div class="notif-body">
                     <div class="notif-text"><b>${b.market_label}</b> ${badgeHtml}</div>
                     <div class="notif-text">${b.team1_name} vs ${b.team2_name}${result ? ' · ' + result : ''}</div>
-                    <div class="notif-time">${date}${time ? ' ' + time + ' UTC' : ''} · @${b.our_odds || '-'} · $${b.stake}</div>
+                    <div class="notif-time">${rel} · @${b.our_odds || '-'} · $${b.stake}</div>
                 </div>
             </div>`;
         }
