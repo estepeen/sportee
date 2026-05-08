@@ -306,7 +306,24 @@ async def fetch_upcoming_with_odds(days: int = 2) -> list[dict]:
 
     API usage: 1 req for match list + 1 req per match for odds.
     Typically ~10-15 upcoming main tour matches = ~12-17 requests.
+
+    Cache TTL: serve cached file if it's <60min old, to keep us inside the
+    30k/month RapidAPI plan. Periodic refresh runs every 30min, so this
+    halves the call rate without losing data freshness in practice.
     """
+    CACHE_TTL_SECONDS = 60 * 60
+    try:
+        with open(ODDS_FILE) as _f:
+            _cached = json.load(_f)
+        _updated = _cached.get("updated_at", "")
+        if _updated:
+            _age = (datetime.utcnow() - datetime.fromisoformat(_updated.replace("Z", ""))).total_seconds()
+            if _age < CACHE_TTL_SECONDS:
+                logger.info(f"SofaScore cache fresh ({int(_age)}s old) — skipping fetch")
+                return _cached.get("matches", [])
+    except (FileNotFoundError, json.JSONDecodeError, ValueError, KeyError):
+        pass
+
     usage = get_usage()
     logger.info(f"SofaScore API usage: {usage['used']}/{usage['limit']} ({usage['remaining']} remaining)")
 
@@ -378,21 +395,10 @@ async def fetch_upcoming_with_odds(days: int = 2) -> list[dict]:
 
         logger.info(f"Found {len(all_upcoming)} upcoming ATP/WTA singles matches")
 
-        # Fetch odds for each match (budget-aware)
-        remaining = get_usage()["remaining"]
-        max_odds_calls = min(len(all_upcoming), remaining - 10)  # keep 10 reserve
-
-        for i, match in enumerate(all_upcoming):
-            if i >= max_odds_calls:
-                logger.info(f"Budget limit: fetched odds for {i}/{len(all_upcoming)} matches")
-                break
-
-            odds_data = await _api_get(client, f"/match/odds?match_id={match['sofascore_id']}")
-            if not odds_data:
-                continue
-
-            odds_list = odds_data if isinstance(odds_data, list) else []
-            match["odds"] = _parse_odds(odds_list, match["player1"], match["player2"])
+        # Polymarket is the canonical odds source (primary + fallback). Skip
+        # SofaScore /match/odds calls — they were 88% of monthly RapidAPI quota
+        # and were getting overwritten by PM odds anyway. SS now contributes
+        # metadata only: tour, tournament, round, rank, start_time.
 
     # Save to file
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -482,21 +488,18 @@ def load_sofascore_odds() -> list[dict]:
 
     matches = []
     for m in data.get("matches", []):
-        odds = m.get("odds", {})
-        ml = odds.get("moneyline", {})
-        if not ml:
-            continue
-
+        # SS no longer supplies odds (Polymarket is the canonical source); we
+        # keep the metadata so _merge_tennis_odds can still tag matchups with
+        # tour/tournament/round/rank/start_time.
+        odds = m.get("odds", {}) or {}
+        ml = odds.get("moneyline", {}) or {}
         p1_odds = ml.get("player1_odds", 0)
         p2_odds = ml.get("player2_odds", 0)
-        if p1_odds <= 1 or p2_odds <= 1:
-            continue
-
         p1_prob = ml.get("player1_prob", 0)
         p2_prob = ml.get("player2_prob", 0)
 
-        first_set = odds.get("first_set", {})
-        total = odds.get("total_games", {})
+        first_set = odds.get("first_set", {}) or {}
+        total = odds.get("total_games", {}) or {}
 
         matches.append({
             "source": "sofascore",

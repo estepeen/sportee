@@ -939,7 +939,7 @@ def _auto_record_all_picks(all_picks: list):
     # where odds are misleading (Djokovic vs Prizmic case).
     from src.tennis.database import get_tennis_db
     from src.tennis.stats import find_player as _find_player_for_recency
-    MAX_LAYOFF_DAYS = 20
+    MAX_LAYOFF_DAYS = 30
     stale_cutoff = (datetime.utcnow() - timedelta(days=MAX_LAYOFF_DAYS)).strftime("%Y-%m-%d")
     _recency_conn = get_tennis_db()
     _recency_cache: dict[str, bool] = {}
