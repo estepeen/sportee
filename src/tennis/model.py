@@ -413,14 +413,39 @@ def _train_single_model(X, y, label="global"):
     return calibrated, final_model, avg_acc, importance
 
 
+VALIDATION_DAYS = 14   # last N days held out for champion-vs-candidate gating
+GATE_TOLERANCE = 0.001 # candidate accepted if val_acc >= champion_acc - tolerance
+MIN_HOLDOUT = 50       # need at least this many held-out matches to gate
+
+
 def train_model(since_year=2020):
-    """Train global + surface-specific LightGBM models."""
+    """Train global + surface-specific LightGBM models with champion-challenger gating.
+
+    Builds the full feature dataframe, holds out the last VALIDATION_DAYS as a clean
+    test set, trains a candidate on the rest, then compares its validation accuracy
+    against the existing production model on the same held-out matches. Promotes only
+    if candidate >= champion - GATE_TOLERANCE.
+    """
     df = build_training_data(since_year=since_year)
+    df["_date_dt"] = pd.to_datetime(df["date"])
+
+    cutoff = df["_date_dt"].max() - pd.Timedelta(days=VALIDATION_DAYS)
+    df_train = df[df["_date_dt"] < cutoff].drop(columns=["_date_dt"])
+    df_holdout = df[df["_date_dt"] >= cutoff].drop(columns=["_date_dt"])
+    holdout_active = len(df_holdout) >= MIN_HOLDOUT
+
+    if holdout_active:
+        logger.info(f"Held-out validation: {len(df_holdout)} matches from last {VALIDATION_DAYS} days "
+                    f"({cutoff.date()} →); training on {len(df_train)} earlier matches")
+        train_df = df_train
+    else:
+        logger.info(f"Skipping gating: only {len(df_holdout)} held-out matches (<{MIN_HOLDOUT}); training on full dataset")
+        train_df = df.drop(columns=["_date_dt"], errors="ignore")
 
     # === Global model (all surfaces) ===
     logger.info("=== Training GLOBAL model ===")
-    X_global = df[FEATURE_COLS].fillna(0)
-    y_global = df["label"]
+    X_global = train_df[FEATURE_COLS].fillna(0)
+    y_global = train_df["label"]
     global_cal, global_raw, global_acc, global_imp = _train_single_model(
         X_global, y_global, "global"
     )
@@ -435,7 +460,7 @@ def train_model(since_year=2020):
     surface_cols = SURFACE_FEATURE_COLS
 
     for surface_key in ["hard", "clay", "grass"]:
-        surface_df = df[df["surface_key"] == surface_key]
+        surface_df = train_df[train_df["surface_key"] == surface_key]
         if len(surface_df) < 500:
             logger.info(f"  [{surface_key}] Only {len(surface_df)} samples, using global model")
             continue
@@ -453,7 +478,46 @@ def train_model(since_year=2020):
         }
         logger.info(f"  [{surface_key}] Accuracy: {acc:.4f}, Samples: {len(surface_df)}")
 
-    # Save all models
+    # === GATING: candidate vs champion on held-out set ===
+    val_acc_candidate = None
+    val_acc_champion = None
+    promoted = True
+    rejection_reason = None
+
+    if holdout_active:
+        X_val = df_holdout[FEATURE_COLS].fillna(0)
+        y_val = df_holdout["label"]
+        val_acc_candidate = float(global_cal.score(X_val, y_val))
+        logger.info(f"Candidate validation accuracy: {val_acc_candidate:.4f} (n={len(df_holdout)})")
+
+        if MODEL_PATH.exists():
+            try:
+                with open(MODEL_PATH, "rb") as f:
+                    champion = pickle.load(f)
+                champion_model = champion.get("model")
+                champion_gated = champion.get("gated_training", False)
+                if champion_model is None:
+                    logger.info("Champion has no model — promoting candidate")
+                elif not champion_gated:
+                    logger.info(
+                        "Champion was trained without held-out gating (legacy) — "
+                        "skipping comparison and promoting candidate to bootstrap"
+                    )
+                else:
+                    val_acc_champion = float(champion_model.score(X_val, y_val))
+                    logger.info(f"Champion validation accuracy: {val_acc_champion:.4f}")
+                    if val_acc_candidate < val_acc_champion - GATE_TOLERANCE:
+                        promoted = False
+                        rejection_reason = (
+                            f"candidate {val_acc_candidate:.4f} < champion {val_acc_champion:.4f} "
+                            f"- tolerance {GATE_TOLERANCE}"
+                        )
+            except Exception as e:
+                logger.warning(f"Champion evaluation failed ({e}); promoting candidate by default")
+        else:
+            logger.info("No existing champion — first training, promoting candidate")
+
+    # Build candidate model package
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     model_data = {
         "model": global_cal,
@@ -461,20 +525,33 @@ def train_model(since_year=2020):
         "features": FEATURE_COLS,
         "surface_features": surface_cols,
         "accuracy": global_acc,
+        "validation_accuracy": val_acc_candidate,
         "trained_at": datetime.now().isoformat(),
-        "training_samples": len(df),
+        "training_samples": len(train_df),
         "feature_importance": global_imp,
         "surface_models": surface_models,
+        "gated_training": holdout_active,
+        "holdout_cutoff": cutoff.isoformat() if holdout_active else None,
     }
-    with open(MODEL_PATH, "wb") as f:
-        pickle.dump(model_data, f)
 
-    logger.info(f"Model saved to {MODEL_PATH}")
-    logger.info(f"Global accuracy: {global_acc:.4f}, Samples: {len(df)}, Features: {len(FEATURE_COLS)}")
+    if promoted:
+        with open(MODEL_PATH, "wb") as f:
+            pickle.dump(model_data, f)
+        logger.info(f"PROMOTED → saved to {MODEL_PATH}")
+        if val_acc_champion is not None:
+            logger.info(f"  candidate {val_acc_candidate:.4f} vs champion {val_acc_champion:.4f}")
+    else:
+        rejected_path = MODEL_PATH.with_suffix(f".rejected_{datetime.now().strftime('%Y%m%d')}")
+        with open(rejected_path, "wb") as f:
+            pickle.dump(model_data, f)
+        logger.warning(f"REJECTED → {rejection_reason}")
+        logger.warning(f"  candidate stored at {rejected_path}; production {MODEL_PATH} unchanged")
+
+    logger.info(f"Global CV accuracy: {global_acc:.4f}, Samples: {len(train_df)}, Features: {len(FEATURE_COLS)}")
     for sk, sm in surface_models.items():
         logger.info(f"  {sk}: {sm['accuracy']:.4f} ({sm['training_samples']} samples)")
 
-    # Log accuracy to DB
+    # Log to DB
     try:
         conn = get_tennis_db()
         conn.execute("""
@@ -492,21 +569,34 @@ def train_model(since_year=2020):
                 grass_samples INTEGER DEFAULT 0
             )
         """)
+        # Add gating columns if upgrading from older schema
+        existing = {r[1] for r in conn.execute("PRAGMA table_info(model_history)").fetchall()}
+        for col, ddl in [
+            ("validation_accuracy", "REAL"),
+            ("champion_validation_accuracy", "REAL"),
+            ("promoted", "INTEGER DEFAULT 1"),
+        ]:
+            if col not in existing:
+                conn.execute(f"ALTER TABLE model_history ADD COLUMN {col} {ddl}")
         conn.execute("""
             INSERT INTO model_history
             (trained_at, model_type, global_accuracy, hard_accuracy, clay_accuracy, grass_accuracy,
-             training_samples, hard_samples, clay_samples, grass_samples)
-            VALUES (?, 'singles', ?, ?, ?, ?, ?, ?, ?, ?)
+             training_samples, hard_samples, clay_samples, grass_samples,
+             validation_accuracy, champion_validation_accuracy, promoted)
+            VALUES (?, 'singles', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             datetime.now().isoformat(),
             global_acc,
             surface_models.get("hard", {}).get("accuracy", 0),
             surface_models.get("clay", {}).get("accuracy", 0),
             surface_models.get("grass", {}).get("accuracy", 0),
-            len(df),
+            len(train_df),
             surface_models.get("hard", {}).get("training_samples", 0),
             surface_models.get("clay", {}).get("training_samples", 0),
             surface_models.get("grass", {}).get("training_samples", 0),
+            val_acc_candidate,
+            val_acc_champion,
+            1 if promoted else 0,
         ))
         conn.commit()
         conn.close()

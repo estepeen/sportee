@@ -119,9 +119,9 @@ async def _api_get(client: httpx.AsyncClient, endpoint: str) -> list | dict | No
 
 
 def _is_main_tour(event: dict) -> bool:
-    """Check if event is ATP/WTA main tour singles (no challengers, ITF, doubles)."""
+    """Check if event is ATP main tour singles (no WTA, no challengers, ITF, doubles)."""
     cat = event.get("tournament", {}).get("category", {}).get("name", "")
-    if cat not in ("ATP", "WTA"):
+    if cat != "ATP":
         return False
 
     slug = event.get("slug", "")
@@ -131,8 +131,7 @@ def _is_main_tour(event: dict) -> bool:
 
     combined = f"{slug} {season_name} {tournament_name} {ut_name}".lower()
 
-    # Skip doubles, qualifying, challengers, ITF
-    skip_words = ["double", "qualifying", "challenger", "itf", "futures"]
+    skip_words = ["double", "qualifying", "challenger", "itf", "futures", "wta", "women", "ladies"]
     if any(w in combined for w in skip_words):
         return False
 

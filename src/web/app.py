@@ -14,7 +14,63 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from config.settings import DB_PATH
-from src.strategy.bet_manager import BetManager
+from src.strategy.bet_manager import BetManager, MIN_ODDS, MAX_ODDS, MIN_OUR_PROB
+
+
+def _passes_quality_filter(b: dict) -> bool:
+    """Bets are only shown / placed if they meet historical-ROI thresholds."""
+    odds = b.get("our_odds") or 0
+    prob = b.get("our_prob") or 0
+    return MIN_ODDS <= odds <= MAX_ODDS and prob >= MIN_OUR_PROB
+
+
+def _filtered_bet_stats(bm) -> dict:
+    """Same shape as BetManager.get_stats(), but only over filter-passing bets."""
+    from datetime import timedelta
+    bets = [b for b in bm.bets if _passes_quality_filter(b)]
+    resolved = [b for b in bets if b["status"] in ("won", "lost")]
+    pending = [b for b in bets if b["status"] == "pending"]
+
+    if not resolved:
+        return {
+            "total_bets": 0, "wins": 0, "losses": 0,
+            "winrate": 0, "total_profit": 0, "roi": 0,
+            "bankroll": bm.bankroll,
+            "pending": len(pending),
+            "pending_exposure": round(sum(b["stake"] for b in pending), 2),
+            "total_staked": 0, "avg_odds": 0,
+            "profit_24h": 0, "winrate_24h": 0, "wins_24h": 0, "losses_24h": 0,
+        }
+
+    wins = sum(1 for b in resolved if b["status"] == "won")
+    losses = sum(1 for b in resolved if b["status"] == "lost")
+    total_staked = sum(b["stake"] for b in resolved)
+    total_profit = sum(b["profit"] for b in resolved)
+
+    cutoff_24h = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+    recent_24h = [b for b in resolved if b.get("created_at", "") >= cutoff_24h]
+    wins_24h = sum(1 for b in recent_24h if b["status"] == "won")
+    losses_24h = sum(1 for b in recent_24h if b["status"] == "lost")
+    profit_24h = sum(b["profit"] for b in recent_24h) if recent_24h else 0
+    winrate_24h = round(wins_24h / len(recent_24h) * 100, 1) if recent_24h else 0
+
+    return {
+        "total_bets": len(resolved),
+        "wins": wins,
+        "losses": losses,
+        "winrate": round(wins / len(resolved) * 100, 1),
+        "total_staked": round(total_staked, 2),
+        "total_profit": round(total_profit, 2),
+        "roi": round(total_profit / total_staked * 100, 1) if total_staked > 0 else 0,
+        "bankroll": round(bm.bankroll, 2),
+        "pending": len(pending),
+        "pending_exposure": round(sum(b["stake"] for b in pending), 2),
+        "avg_odds": round(sum(b["our_odds"] for b in resolved) / len(resolved), 2),
+        "profit_24h": round(profit_24h, 2),
+        "winrate_24h": winrate_24h,
+        "wins_24h": wins_24h,
+        "losses_24h": losses_24h,
+    }
 from src.scraper.polymarket import PolymarketClient
 from src.tennis.sofascore_api import load_sofascore_odds, get_usage as ss_usage
 from src.tennis.model import load_model as load_tennis_model, _get_avg_stats
@@ -145,6 +201,10 @@ def _recompute_cache():
             import traceback
             logging.getLogger(__name__).error(f"Auto-record singles failed: {e}\n{traceback.format_exc()}")
 
+        # NOTE: live odds re-sync intentionally disabled — bets are locked at placement
+        # and updated exactly once, 4h later, by scripts/finalize_pick_odds.py via cron.
+        # See odds_finalized / recorded_at fields on each bet.
+
         _predictions_cache = {
             "matches": upcoming,
             "all_matches": all_matches,
@@ -196,64 +256,12 @@ async def startup_cache():
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
-    bet_stats = bet_manager.get_stats()
-    recent_bets = bet_manager.get_recent_bets(10)
-
-    # Use cached predictions (instant load)
-    upcoming = _predictions_cache.get("matches", [])
-    all_matches = _predictions_cache.get("all_matches", upcoming)
-    top_picks = _predictions_cache.get("picks", [])
-    value_bets = _predictions_cache.get("value_bets", [])
-
-    # Trigger background recompute if cache is stale (>10 min)
-    cache_age = _predictions_cache.get("updated", "")
-    if not cache_age or (datetime.now() - datetime.fromisoformat(cache_age)).seconds > 600:
-        import threading
-        threading.Thread(target=_recompute_cache, daemon=True).start()
-
-    all_picks = sorted(top_picks, key=lambda x: (-x.get("stars", 0), -x.get("confidence", 0)))
-    all_value = sorted(value_bets, key=lambda x: -x.get("edge", 0))
-
-    # "Safe Favorites" strategy: odds <= 1.5, flat $1000 stake
-    resolved = [b for b in bet_manager.bets if b.get("status") in ("won", "lost")]
-    safe_bets = [b for b in resolved if b.get("our_odds", 99) <= 1.5]
-    safe_w = sum(1 for b in safe_bets if b["status"] == "won")
-    safe_l = len(safe_bets) - safe_w
-    safe_flat = 1000
-    safe_profit = sum(safe_flat * (b["our_odds"] - 1) if b["status"] == "won" else -safe_flat for b in safe_bets)
-    safe_staked = safe_flat * len(safe_bets)
-    safe_strategy = {
-        "name": "Safe Favorites",
-        "desc": "Odds \u2264 1.50, flat $1,000",
-        "bets": len(safe_bets),
-        "wins": safe_w,
-        "losses": safe_l,
-        "winrate": round(safe_w / len(safe_bets) * 100, 1) if safe_bets else 0,
-        "staked": safe_staked,
-        "profit": round(safe_profit),
-        "roi": round(safe_profit / safe_staked * 100, 1) if safe_staked else 0,
-        "bankroll": round(1_000_000 + safe_profit),
-        "recent": sorted(
-            [{"label": b.get("market_label", ""), "odds": b.get("our_odds", 0),
-              "result": b["status"], "profit": round(safe_flat * (b["our_odds"] - 1), 0) if b["status"] == "won" else -safe_flat,
-              "event": b.get("event", ""), "date": b.get("created_at", "")[:10]}
-             for b in safe_bets],
-            key=lambda x: x["date"], reverse=True
-        )[:10],
-    }
-
+    bet_manager.load()
+    bet_stats = _filtered_bet_stats(bet_manager)
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
         "active_page": "portfolio",
         "bet_stats": bet_stats,
-        "tennis_matches": upcoming,
-        "all_tennis_matches": all_matches,
-        "doubles_matches": [],
-        "recent_bets": recent_bets,
-        "top_picks": all_picks,
-        "value_bets": all_value,
-        "safe_strategy": safe_strategy,
-        "sofascore_usage": ss_usage(),
     })
 
 
@@ -262,9 +270,10 @@ async def dashboard(request: Request):
 @app.get("/active-bets", response_class=HTMLResponse)
 async def active_bets_page(request: Request, q: str = "", tour: str = ""):
     bet_manager.load()
-    bet_stats = bet_manager.get_stats()
+    bet_stats = _filtered_bet_stats(bet_manager)
     pending = sorted(
-        [b for b in bet_manager.bets if b.get("status") == "pending"],
+        [b for b in bet_manager.bets
+         if b.get("status") == "pending" and _passes_quality_filter(b)],
         key=lambda b: b.get("created_at", ""),
         reverse=True,
     )
@@ -323,16 +332,19 @@ def _parse_tournament_from_question(question: str) -> str:
 
 
 def _merge_tennis_odds(ss_matches: list, pm_matches: list) -> list:
-    """Merge SofaScore and Polymarket odds. PM odds preferred (we bet on Polymarket)."""
+    """Merge SofaScore and Polymarket odds. Polymarket is the primary source.
+    If PM has no data for a match, SS odds are used as fallback (flagged so the
+    UI can warn that the displayed odds may not be obtainable on PM)."""
     seen = {}  # key -> index in merged
+    pm_seen = set()  # indices whose odds came from Polymarket
     merged = []
 
     for m in ss_matches:
         key = (_normalize_name(m["player1"]), _normalize_name(m["player2"]))
-        key_rev = (key[1], key[0])
         idx = len(merged)
         seen[key] = idx
-        seen[key_rev] = idx
+        # SS-sourced odds by default; PM merge below will upgrade to "polymarket"
+        m["odds_source"] = "sofascore" if m.get("player1_odds") else ""
         merged.append(m)
 
     for m in pm_matches:
@@ -351,7 +363,7 @@ def _merge_tennis_odds(ss_matches: list, pm_matches: list) -> list:
             else:
                 existing["player1_price"] = m.get("player2_price", 0)
                 existing["player2_price"] = m.get("player1_price", 0)
-            # Always prefer Polymarket odds (that's where we bet)
+            # Polymarket is THE odds source — overwrite anything SS set
             if m.get("player1_odds"):
                 if not swapped:
                     existing["player1_odds"] = m.get("player1_odds", 0)
@@ -359,15 +371,18 @@ def _merge_tennis_odds(ss_matches: list, pm_matches: list) -> list:
                 else:
                     existing["player1_odds"] = m.get("player2_odds", 0)
                     existing["player2_odds"] = m.get("player1_odds", 0)
+                existing["odds_source"] = "polymarket"
+                pm_seen.add(idx)
         else:
             # PM-only match — extract tournament from question
             if not m.get("tournament"):
                 m["tournament"] = _parse_tournament_from_question(m.get("question", ""))
             m["source"] = "polymarket"
+            m["odds_source"] = "polymarket"
             idx = len(merged)
             merged.append(m)
             seen[key] = idx
-            seen[(key[1], key[0])] = idx
+            pm_seen.add(idx)
 
     merged.sort(key=lambda x: (x.get("tournament", ""), x.get("player1", "")))
     return merged
@@ -557,7 +572,9 @@ def _generate_smart_picks(matches: list) -> list:
 
         # Skip WTA (keep all ATP: Tour, Challenger, Masters 1000, Grand Slams)
         t_lower = (tourn + " " + tour).lower()
-        if any(w in t_lower for w in ["wta", "women"]):
+        if any(w in t_lower for w in ["wta", "women", "ladies"]):
+            continue
+        if m.get("match_type") == "doubles" or "/" in p1 or "/" in p2:
             continue
 
         # LL warning
@@ -595,6 +612,7 @@ def _generate_smart_picks(matches: list) -> list:
                 "mkt_prob": 1 / odds if odds > 1 else 0.5,
                 "edge": edge,
                 "odds": odds,
+                "odds_source": m.get("odds_source", ""),
                 "stars": stars,
                 "confidence": round(prob * edge / 10, 1) if ml_tag != "ML_VETO" else 0,
                 "suggested_stake": 1000 if ml_tag != "ML_VETO" else 0,
@@ -867,35 +885,19 @@ def _format_event_name(tournament: str, tour: str = "") -> str:
 
 
 def _find_pm_url(pick_data: dict) -> str:
-    """Get Polymarket URL for the bet (primary), SofaScore as fallback."""
-    # Prefer Polymarket URL (that's where we bet)
+    """Get Polymarket URL for the bet. Only returns polymarket.com links."""
     pm_url = pick_data.get("pm_url", "")
-    if pm_url:
+    if pm_url and "polymarket.com" in pm_url:
         return pm_url
 
-    # Fallback: SofaScore player page
+    # Fallback: Polymarket search for the two players
     pick_name = pick_data.get("pick", "")
-    p1 = pick_data.get("player1", "")
-    if pick_name and _normalize_name(pick_name) == _normalize_name(p1 or pick_name):
-        slug = pick_data.get("player1_slug", "")
-        pid = pick_data.get("player1_ss_id", 0)
-    else:
-        slug = pick_data.get("player2_slug", "")
-        pid = pick_data.get("player2_ss_id", 0)
-    if slug and pid:
-        return f"https://www.sofascore.com/tennis/player/{slug}/{pid}"
-
-    ss_id = pick_data.get("sofascore_id") or 0
-    if ss_id:
-        return f"https://www.sofascore.com/event/{ss_id}"
-
-    # Last resort: SofaScore search
-    player1 = pick_name or p1
-    player2 = pick_data.get("opponent", "") or pick_data.get("player2", "")
-    q = f"{player1} {player2}".strip()
+    p1 = pick_data.get("player1", "") or pick_name
+    p2 = pick_data.get("opponent", "") or pick_data.get("player2", "")
+    q = f"{p1} {p2}".strip()
     if q:
         from urllib.parse import quote
-        return f"https://www.sofascore.com/search?q={quote(q)}"
+        return f"https://polymarket.com/markets?search={quote(q)}"
     return ""
 
 
@@ -921,7 +923,15 @@ def _auto_record_all_picks(all_picks: list):
     # Collect new picks that need recording (skip duplicates & resolved)
     new_picks = []
     batch_seen = set()  # track within current batch to avoid ai_picks + value_bets dupes
+    skipped_quality = 0
     for p in all_picks:
+        # Quality filter: odds in [MIN_ODDS, MAX_ODDS] window, prob above floor
+        odds = p.get("odds", 0) or 0
+        prob = p.get("ml_prob", 0) or 0
+        if odds < MIN_ODDS or odds > MAX_ODDS or prob < MIN_OUR_PROB:
+            skipped_quality += 1
+            continue
+
         pick = p.get("pick", "")
         opp = p.get("opponent", "")
         bet_type = p.get("bet_type", "WIN")
@@ -961,7 +971,7 @@ def _auto_record_all_picks(all_picks: list):
         new_picks.append(p)
 
     if not new_picks:
-        logger.info(f"Auto-record: 0 new picks (all {len(all_picks)} filtered by dedup/resolved)")
+        logger.info(f"Auto-record: 0 new picks (filtered {skipped_quality} on quality, rest on dedup/resolved out of {len(all_picks)})")
         try:
             lock_file.close()
         except Exception:
@@ -1023,6 +1033,11 @@ def _auto_record_all_picks(all_picks: list):
                     b["pm_url"] = pm_url
                 b["source"] = source
                 b["match_type"] = p.get("match_type", "singles")
+                # Real bet-write time, not match date — used by scripts/finalize_pick_odds.py
+                # to find bets that hit the +4h finalize window. created_at is overwritten
+                # to match_date below for sort/UI purposes, so we need a separate field.
+                b["recorded_at"] = datetime.utcnow().isoformat()
+                b["odds_finalized"] = False
                 if rnd:
                     b["round"] = rnd
                 if match_date:
@@ -1035,6 +1050,7 @@ def _auto_record_all_picks(all_picks: list):
                     mkt = p.get("mkt_prob", 0)
                     edge = p.get("edge", 0)
                     b["reason"] = f"AI: {ml*100:.0f}% vs Market: {mkt*100:.0f}% (edge +{edge:.1f}%)"
+                b["odds_source"] = p.get("odds_source", "")
                 b["bet_meta"] = {
                     "ml_prob": p.get("ml_prob", 0),
                     "mkt_prob": p.get("mkt_prob", 0),
@@ -1051,7 +1067,7 @@ def _auto_record_all_picks(all_picks: list):
         recorded += 1
 
     bet_manager.save()
-    logger.info(f"Auto-recorded {recorded} picks to My Positions (bankroll: ${bet_manager.bankroll:.0f})")
+    logger.info(f"Auto-recorded {recorded} picks to My Positions (skipped {skipped_quality} on quality filter, bankroll: ${bet_manager.bankroll:.0f})")
     try:
         lock_file.close()
     except Exception:
@@ -1145,7 +1161,9 @@ def _generate_value_bets(matches: list) -> list:
 
             # Skip WTA and Masters 1000 (only ATP Tour + Challenger)
             t_lower = (tourn + " " + tour).lower()
-            if any(w in t_lower for w in ["wta", "women"]):
+            if any(w in t_lower for w in ["wta", "women", "ladies"]):
+                continue
+            if m.get("match_type") == "doubles" or "/" in name or "/" in opp:
                 continue
             if any(w in t_lower for w in ["miami", "indian wells", "rome", "madrid", "monte carlo",
                                            "shanghai", "paris", "cincinnati", "canadian"]):
@@ -1399,10 +1417,11 @@ def _build_analytics_from_bets() -> dict:
 @app.get("/history", response_class=HTMLResponse)
 async def history_page(request: Request, page: int = 1, status: str = "", tour: str = "", q: str = "", type: str = ""):
     bet_manager.load()
-    bet_stats = bet_manager.get_stats()
+    bet_stats = _filtered_bet_stats(bet_manager)
     # History = only resolved (won, lost, void) - no pending
     all_bets = sorted(
-        [b for b in bet_manager.bets if b.get("status") in ("won", "lost", "void")],
+        [b for b in bet_manager.bets
+         if b.get("status") in ("won", "lost", "void") and _passes_quality_filter(b)],
         key=lambda b: b.get("created_at", ""),
         reverse=True,
     )
@@ -1630,6 +1649,11 @@ async def api_place_bet(request: Request):
     if not market_label or not team1_name:
         return JSONResponse({"ok": False, "error": "Missing bet data"})
 
+    if our_odds > MAX_ODDS:
+        return JSONResponse({"ok": False, "error": f"Odds {our_odds} exceed cap {MAX_ODDS}"})
+    if our_prob < MIN_OUR_PROB:
+        return JSONResponse({"ok": False, "error": f"Our prob {our_prob:.2f} below min {MIN_OUR_PROB}"})
+
     if stake > bet_manager.bankroll:
         return JSONResponse({"ok": False, "error": f"Insufficient bankroll (${bet_manager.bankroll:.2f})"})
 
@@ -1767,11 +1791,113 @@ async def api_resolved_bets():
     return JSONResponse(resolved)
 
 
+def _resync_pending_bet_odds():
+    """Update our_odds for pending bets to current Polymarket prices.
+
+    Without this, bets keep entry-time odds which often diverge from current PM
+    (especially for SofaScore-fallback bets). Runs each periodic refresh.
+    """
+    import unicodedata
+
+    def _norm(s):
+        return "".join(c for c in unicodedata.normalize("NFD", s or "")
+                       if unicodedata.category(c) != "Mn").lower().strip()
+
+    try:
+        with open(DATA_DIR / "tennis_odds.json") as f:
+            pm_data = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return 0
+
+    pm_idx = {}
+    for m in pm_data:
+        p1, p2 = _norm(m.get("player1", "")), _norm(m.get("player2", ""))
+        if p1 and p2:
+            pm_idx[tuple(sorted([p1, p2]))] = m
+
+    bet_manager.load()
+    updated = 0
+    for b in bet_manager.bets:
+        if b.get("status") != "pending":
+            continue
+        pick = _norm(b.get("team1_name", ""))
+        opp = _norm(b.get("team2_name", ""))
+        if not pick or not opp:
+            continue
+        pm_match = pm_idx.get(tuple(sorted([pick, opp])))
+        if not pm_match:
+            continue
+        if _norm(pm_match.get("player1", "")) == pick:
+            new_odds = pm_match.get("player1_odds", 0)
+        elif _norm(pm_match.get("player2", "")) == pick:
+            new_odds = pm_match.get("player2_odds", 0)
+        else:
+            continue
+        if not new_odds or new_odds < 1.01 or new_odds > 100:
+            continue
+        old_odds = b.get("our_odds", 0)
+        old_source = b.get("odds_source", "")
+        if abs(new_odds - old_odds) < 0.01 and old_source == "polymarket":
+            continue
+        b["our_odds"] = new_odds
+        b["odds_source"] = "polymarket"
+        new_mkt_prob = 1.0 / new_odds
+        if isinstance(b.get("bet_meta"), dict):
+            b["bet_meta"]["mkt_prob"] = round(new_mkt_prob, 4)
+            old_prob = b.get("our_prob", 0)
+            b["bet_meta"]["edge"] = round((old_prob - new_mkt_prob) * 100, 1)
+        b["odds_resynced_at"] = datetime.utcnow().isoformat()
+        updated += 1
+
+    if updated:
+        bet_manager.save()
+        logging.getLogger(__name__).info(f"Re-synced odds for {updated} pending bets to current PM")
+    return updated
+
+
 @app.post("/api/refresh-cache")
 async def api_refresh_cache():
     import threading
     threading.Thread(target=_recompute_cache, daemon=True).start()
     return JSONResponse({"ok": True, "message": "Cache refresh started"})
+
+
+def _paginate_bets(bets: list, page: int, per_page: int) -> dict:
+    page = max(1, page)
+    per_page = max(1, min(per_page, 100))
+    total = len(bets)
+    total_pages = max(1, -(-total // per_page))
+    page = min(page, total_pages)
+    start = (page - 1) * per_page
+    return {
+        "bets": bets[start:start + per_page],
+        "page": page,
+        "per_page": per_page,
+        "total": total,
+        "total_pages": total_pages,
+    }
+
+
+@app.get("/api/bets/active")
+async def api_bets_active(page: int = 1, per_page: int = 15):
+    bet_manager.load()
+    bets = sorted(
+        [b for b in bet_manager.bets
+         if b.get("status") == "pending" and _passes_quality_filter(b)],
+        key=lambda b: b.get("created_at", ""), reverse=True,
+    )
+    return JSONResponse(_paginate_bets(bets, page, per_page))
+
+
+@app.get("/api/bets/history")
+async def api_bets_history(page: int = 1, per_page: int = 15):
+    bet_manager.load()
+    bets = sorted(
+        [b for b in bet_manager.bets
+         if b.get("status") in ("won", "lost", "void") and _passes_quality_filter(b)],
+        key=lambda b: b.get("created_at", ""), reverse=True,
+    )
+    return JSONResponse(_paginate_bets(bets, page, per_page))
 
 
 @app.post("/api/resolve-from-polymarket")
@@ -1962,10 +2088,6 @@ async def api_resolve_single(request: Request):
                     for b in bet_manager.bets:
                         if b["id"] == bet_id:
                             b["actual_result"] = score_str
-                            slug = ev.get("slug", "")
-                            eid = ev.get("id", 0)
-                            if slug and eid:
-                                b["pm_url"] = f"https://www.sofascore.com/tennis/match/{slug}#id:{eid}"
                     bet_manager.save()
 
                     return JSONResponse({"ok": True, "message": f"{result.upper()}: {score_str}"})

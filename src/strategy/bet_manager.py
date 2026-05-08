@@ -16,7 +16,9 @@ BANKROLL_FILE = DATA_DIR / "bankroll.json"
 MIN_EDGE = 0.05        # 5% minimum edge to recommend
 MAX_EDGE = 0.25        # cap edge at 25% - anything higher means model is likely wrong
 MIN_CONFIDENCE = 0.4   # minimum model confidence
-MIN_ODDS = 1.25        # minimum odds (user preference)
+MIN_ODDS = 1.25        # minimum odds (user preference) — heavy favorites pay too little
+MAX_ODDS = 1.70        # cap: odds > 1.70 historically lose money (ROI -44% on 1.80+)
+MIN_OUR_PROB = 0.0     # disabled — within odds<=1.70 segment the prob<0.70 bets are profitable
 KELLY_FRACTION = 0.25  # quarter Kelly
 MAX_STAKE_PCT = 5.0    # max 5% of bankroll per bet
 MIN_STAKE_PCT = 0.5    # min 0.5% of bankroll per bet
@@ -126,7 +128,9 @@ class BetManager:
             for market in markets:
                 if market["edge"] < MIN_EDGE:
                     continue
-                if market["odds"] < MIN_ODDS:
+                if market["odds"] < MIN_ODDS or market["odds"] > MAX_ODDS:
+                    continue
+                if market["prob"] < MIN_OUR_PROB:
                     continue
 
                 # Deduplicate by team pair + market type

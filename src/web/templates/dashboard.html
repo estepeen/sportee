@@ -76,415 +76,273 @@
     </div>
 </div>
 
-<!-- Safe Favorites Strategy -->
-{% if safe_strategy and safe_strategy.bets > 0 %}
+<style>
+.info-tip .info-bubble {
+    display:none; position:absolute; left:24px; top:50%;
+    transform:translateY(-50%); background:var(--surface-highest);
+    border:1px solid var(--border); border-radius:8px;
+    padding:8px 12px; color:var(--text); font-size:11px;
+    font-weight:400; line-height:1.5; width:280px; z-index:100;
+    box-shadow:0 4px 12px rgba(0,0,0,0.4); white-space:normal; cursor:default;
+}
+.info-tip:hover .info-bubble, .info-tip.show .info-bubble { display:block; }
+.ajax-pager { display:flex; justify-content:space-between; align-items:center; padding:12px 4px 0; font-size:12px; color:var(--text-dim); gap:8px; }
+.ajax-pager.hidden { display:none; }
+</style>
+
+<!-- Active Bets -->
 <div class="section mb-16">
     <div class="section-header">
-        <div class="section-title">{{ safe_strategy.name }}</div>
-        <span class="badge" style="background:rgba(74,222,128,0.15);color:#4ade80;font-size:10px">{{ safe_strategy.desc }}</span>
-    </div>
-
-    <div class="stat-row" style="margin-bottom:12px">
-        <div class="stat-card" style="border:1px solid rgba(74,222,128,0.2)">
-            <div class="stat-label">Profit</div>
-            <div class="stat-value {% if safe_strategy.profit >= 0 %}green{% else %}red{% endif %}">{% if safe_strategy.profit >= 0 %}+{% endif %}${{ "{:,}".format(safe_strategy.profit) }}</div>
-            <div class="stat-sub">ROI: {{ safe_strategy.roi }}%</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">Win Rate</div>
-            <div class="stat-value {% if safe_strategy.winrate >= 70 %}green{% elif safe_strategy.winrate >= 50 %}amber{% else %}red{% endif %}">{{ safe_strategy.winrate }}%</div>
-            <div class="stat-sub">{{ safe_strategy.wins }}W / {{ safe_strategy.losses }}L</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">Total Bets</div>
-            <div class="stat-value">{{ safe_strategy.bets }}</div>
-            <div class="stat-sub">Staked: ${{ "{:,}".format(safe_strategy.staked) }}</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">Bankroll</div>
-            <div class="stat-value">${{ "{:,}".format(safe_strategy.bankroll) }}</div>
-            <div class="stat-sub">Starting $1,000,000</div>
-        </div>
-    </div>
-
-    <div class="tbl-wrap"><table class="tbl" style="font-size:12px">
-        <thead><tr><th>Match</th><th>Event</th><th>Odds</th><th>Result</th><th>P&L</th><th>Date</th></tr></thead>
-        <tbody>
-        {% for r in safe_strategy.recent %}
-        <tr>
-            <td style="font-weight:600;color:var(--text)">{{ r.label }}</td>
-            <td style="color:var(--text-dim);font-size:11px">{{ r.event[:25] if r.event else '-' }}</td>
-            <td class="mono" style="color:var(--tertiary);font-weight:700">{{ r.odds }}</td>
-            <td><span class="badge {% if r.result == 'won' %}badge-live{% else %}{% endif %}" style="{% if r.result == 'lost' %}background:rgba(239,68,68,0.15);color:#ef4444{% endif %}">{{ r.result|upper }}</span></td>
-            <td class="mono" style="font-weight:700;color:{% if r.profit >= 0 %}var(--success){% else %}var(--error){% endif %}">{% if r.profit >= 0 %}+{% endif %}${{ "{:,.0f}".format(r.profit) }}</td>
-            <td style="color:var(--text-dim);font-size:11px">{{ r.date }}</td>
-        </tr>
-        {% endfor %}
-        </tbody>
-    </table></div>
-</div>
-{% endif %}
-
-<!-- LIVE Matches (WebSocket) -->
-<div class="section mb-16" id="live-section" style="display:none">
-    <div class="section-header">
-        <div class="section-title"><span class="dot" style="background:var(--error)"></span> LIVE</div>
+        <div class="section-title">Active Bets <span class="badge badge-live" id="active-count">0 OPEN</span></div>
         <div style="display:flex;gap:8px;align-items:center">
-            <span class="badge badge-live" id="live-count">0 LIVE</span>
-            <span class="badge" style="background:var(--surface-highest);color:var(--text-faint);font-size:9px" id="live-ws-status">connecting...</span>
+            <button class="btn btn-primary btn-sm" onclick="resolveAll()" id="resolve-all-btn">Resolve All</button>
         </div>
     </div>
-    <div class="pulse-scroll" id="live-cards"></div>
+    <div class="tbl-wrap"><table class="tbl">
+        <thead>
+            <tr>
+                <th></th>
+                <th>Match / Market</th>
+                <th>Event</th>
+                <th>Odds</th>
+                <th>Stake</th>
+                <th>Date</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="active-body"><tr><td colspan="7" style="text-align:center;color:var(--text-faint);padding:20px">Loading…</td></tr></tbody>
+    </table></div>
+    <div class="ajax-pager hidden" id="active-pager">
+        <button class="pager-btn" id="active-prev" onclick="loadActive(_activePage-1)">&laquo; Prev</button>
+        <span id="active-pageinfo"></span>
+        <button class="pager-btn" id="active-next" onclick="loadActive(_activePage+1)">Next &raquo;</button>
+    </div>
 </div>
 
-
-<!-- AI Picks -->
-{% if top_picks %}
+<!-- History / Resolved Bets -->
 <div class="section mb-16">
     <div class="section-header">
-        <div class="section-title"><span class="dot" style="background:#4ade80"></span> AI Top Picks</div>
-        <span class="badge" style="background:#1a472a;color:#4ade80">{{ top_picks|length }} PLAYS</span>
+        <div class="section-title">History <span class="badge" id="history-count" style="background:var(--surface-highest);color:var(--text-muted)">0</span></div>
+        <a href="/history" class="section-link">View All History &#8594;</a>
     </div>
-    <div class="tbl-wrap"><table class="tbl paged-tbl">
-        <thead><tr><th>ML</th><th>Conf.</th><th>Play</th><th>Type</th><th>Match</th><th>AI</th><th>Market</th><th>Edge</th><th>Odds</th><th>Stake</th><th></th></tr></thead>
-        <tbody>
-        {% for p in top_picks %}
-        <tr style="{% if p.ml_tag == 'ML_VETO' %}background:rgba(239,68,68,0.08);opacity:0.55;text-decoration:line-through{% elif p.status == 'WIN' %}background:rgba(74,222,128,0.05){% elif p.status == 'LOSS' %}background:rgba(239,68,68,0.05){% endif %}">
-            <td>
-                {% if p.ml_tag == 'CONFIRMED' %}<span class="badge" style="background:#1a472a;color:#4ade80;font-size:8px;font-weight:700">CONFIRMED</span>
-                {% elif p.ml_tag == 'ML_VETO' %}<span class="badge" style="background:#3b1111;color:#ef4444;font-size:8px;font-weight:700">ML VETO</span>
-                {% elif p.ml_tag == 'ML_PICK' %}<span class="badge" style="background:#1e293b;color:#60a5fa;font-size:8px;font-weight:700">ML PICK</span>
-                {% else %}<span class="badge" style="background:var(--surface-highest);color:var(--text-faint);font-size:8px">-</span>{% endif %}
-            </td>
-            <td>
-                {% if p.stars >= 3 %}<span style="background:var(--primary-bg);color:#4ade80;font-weight:700;font-size:11px;padding:4px 10px;border-radius:4px;font-family:'Manrope',sans-serif">HIGH</span>
-                {% elif p.stars >= 2 %}<span style="background:#3b2f1e;color:#f59e0b;font-weight:700;font-size:11px;padding:4px 10px;border-radius:4px;font-family:'Manrope',sans-serif">MED</span>
-                {% elif p.stars >= 1 %}<span style="background:var(--surface-highest);color:var(--text-faint);font-size:11px;padding:4px 10px;border-radius:4px;font-family:'Manrope',sans-serif">LOW</span>
-                {% else %}<span style="background:#3b1111;color:#ef4444;font-size:11px;padding:4px 10px;border-radius:4px;font-family:'Manrope',sans-serif">SKIP</span>{% endif %}
-            </td>
-            <td><span style="font-weight:700;color:var(--text)">{{ p.pick }}</span></td>
-            <td>
-                {% if p.bet_type == 'WIN' %}<span class="badge" style="background:var(--tertiary-bg);color:var(--tertiary);font-size:9px">WIN</span>
-                {% elif p.bet_type == '+1.5 SETS' %}<span class="badge" style="background:#1e3a5f;color:#60a5fa;font-size:9px">+1.5 SETS</span>
-                {% elif p.bet_type == 'TOTAL' %}<span class="badge" style="background:#3b2f1e;color:#f59e0b;font-size:9px">TOTAL</span>
-                {% elif p.bet_type == 'LL_FADE' %}<span class="badge" style="background:#2a0f0f;color:var(--error);font-size:9px">LL FADE</span>
-                {% endif %}
-            </td>
-            <td>
-                <span style="color:var(--text-dim);font-size:12px">vs {{ p.opponent }}</span><br>
-                <span style="color:var(--text-faint);font-size:10px">{{ p.tour }} {{ p.tournament[:16] }}</span>
-            </td>
-            <td><span style="font-weight:700;color:var(--tertiary);font-family:'Space Grotesk',sans-serif">{{ (p.ml_prob*100)|round(0) }}%</span></td>
-            <td><span style="font-weight:600;color:var(--text-dim);font-family:'Space Grotesk',sans-serif">{{ (p.mkt_prob*100)|round(0) }}%</span></td>
-            <td><span style="font-weight:700;color:#4ade80;font-family:'Space Grotesk',sans-serif">+{{ p.edge }}%</span></td>
-            <td><span style="font-weight:700;font-family:'Space Grotesk',sans-serif;font-size:16px">{{ p.odds }}</span></td>
-            <td><span style="font-family:'Space Grotesk',sans-serif;color:var(--text-dim)">${{ p.suggested_stake|default(50) }}</span></td>
-        </tr>
-        {% endfor %}
-        </tbody>
+    <div class="tbl-wrap"><table class="tbl">
+        <thead>
+            <tr>
+                <th></th>
+                <th>Match / Market</th>
+                <th>Event</th>
+                <th>Odds</th>
+                <th>Stake</th>
+                <th>P&L</th>
+                <th>Date</th>
+            </tr>
+        </thead>
+        <tbody id="history-body"><tr><td colspan="7" style="text-align:center;color:var(--text-faint);padding:20px">Loading…</td></tr></tbody>
     </table></div>
+    <div class="ajax-pager hidden" id="history-pager">
+        <button class="pager-btn" id="history-prev" onclick="loadHistory(_historyPage-1)">&laquo; Prev</button>
+        <span id="history-pageinfo"></span>
+        <button class="pager-btn" id="history-next" onclick="loadHistory(_historyPage+1)">Next &raquo;</button>
+    </div>
 </div>
-{% endif %}
 
-<!-- Value Bets -->
-{% if value_bets %}
-<div class="section mb-16">
+<!-- System Health -->
+<div class="section">
     <div class="section-header">
-        <div class="section-title"><span class="dot" style="background:#f59e0b"></span> Value Bets</div>
-        <span class="badge" style="background:#3b2f1e;color:#f59e0b">{{ value_bets|length }} VALUE</span>
+        <div class="section-title">System Health</div>
     </div>
-    <div class="tbl-wrap"><table class="tbl paged-tbl">
-        <thead><tr><th>Conf.</th><th></th><th>Play</th><th>Type</th><th>Match</th><th>AI</th><th>Market</th><th>Edge</th><th>Odds</th><th></th></tr></thead>
-        <tbody>
-        {% for v in value_bets %}
-        <tr style="{% if v.status == 'WIN' %}background:rgba(74,222,128,0.05){% elif v.status == 'LOSS' %}background:rgba(239,68,68,0.05){% endif %}">
-            <td>
-                {% if v.confidence == 'HIGH' %}<span style="background:var(--primary-bg);color:#4ade80;font-weight:700;font-size:11px;padding:4px 10px;border-radius:4px;font-family:'Manrope',sans-serif">HIGH</span>
-                {% elif v.confidence == 'MEDIUM' %}<span style="background:#3b2f1e;color:#f59e0b;font-weight:700;font-size:11px;padding:4px 10px;border-radius:4px;font-family:'Manrope',sans-serif">MED</span>
-                {% else %}<span style="background:var(--surface-highest);color:var(--text-faint);font-size:11px;padding:4px 10px;border-radius:4px;font-family:'Manrope',sans-serif">LOW</span>{% endif %}
-            </td>
-            <!-- singles only -->
-            <td><span style="font-weight:700;color:var(--text)">{{ v.pick }}</span></td>
-            <td>
-                {% if v.bet_type == 'WIN' %}<span class="badge" style="background:var(--tertiary-bg);color:var(--tertiary);font-size:9px">WIN</span>
-                {% else %}<span class="badge" style="background:#1e3a5f;color:#60a5fa;font-size:9px">+1.5 SETS</span>{% endif %}
-            </td>
-            <td>
-                <span style="color:var(--text-dim);font-size:12px">vs {{ v.opponent }}</span><br>
-                <span style="color:var(--text-faint);font-size:10px">{{ v.tour }} {{ v.tournament[:16] }}</span>
-            </td>
-            <td><span style="font-weight:700;color:var(--tertiary);font-family:'Space Grotesk',sans-serif">{{ (v.ml_prob*100)|round(0) }}%</span></td>
-            <td><span style="font-weight:600;color:var(--text-dim);font-family:'Space Grotesk',sans-serif">{{ (v.mkt_prob*100)|round(0) }}%</span></td>
-            <td><span style="font-weight:700;color:#4ade80;font-family:'Space Grotesk',sans-serif">+{{ v.edge|round(1) }}%</span></td>
-            <td>
-                <span style="font-weight:700;font-family:'Space Grotesk',sans-serif;font-size:16px">{{ v.odds }}</span>
-                {% if v.bet_type == '+1.5 SETS' and v.original_odds %}<br><span style="font-size:9px;color:var(--text-faint)">WIN @{{ v.original_odds }}</span>{% endif %}
-            </td>
-        </tr>
-        {% endfor %}
-        </tbody>
-    </table></div>
-</div>
-{% endif %}
-
-<!-- Main Grid -->
-<div class="grid-2">
-    <div>
-        <!-- My Positions -->
-        <div class="section mb-16">
-            <div class="section-header">
-                <div class="section-title">My Positions</div>
-                <a href="/history" class="section-link">View All History &#8594;</a>
-            </div>
-            <div class="tbl-wrap"><table class="tbl paged-tbl">
-                <thead><tr><th>Match</th><th>Status</th><th>Odds</th><th>Stake</th><th>P&L</th><th>Action</th></tr></thead>
-                <tbody id="positions-body">
-                {% for b in recent_bets %}
-                <tr>
-                    <td>
-                        <div class="name" style="display:flex;align-items:center;gap:6px">{{ b.market_label }}{% if b.reason %}<span style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;background:var(--surface-highest);color:var(--text-faint);font-size:9px;cursor:help" title="{{ b.reason }}">i</span>{% endif %}</div>
-                        <div class="sub">{% if b.pm_url %}<a href="{{ b.pm_url }}" target="_blank" style="color:var(--text-faint);text-decoration:none" onmouseover="this.style.textDecoration='underline';this.style.color='var(--tertiary)'" onmouseout="this.style.textDecoration='none';this.style.color='var(--text-faint)'">{{ b.team1_name }} vs {{ b.team2_name }}</a>{% else %}{{ b.team1_name }} vs {{ b.team2_name }}{% endif %}{% if b.created_at %} &middot; {{ b.created_at[:10] }}{% endif %}</div>
-                    </td>
-                    <td>
-                        {% if b.status == 'pending' %}<span class="status-pending">PENDING</span>
-                        {% elif b.status == 'won' %}<span class="status-won">WON</span>
-                        {% elif b.status == 'lost' %}<span class="status-lost">LOST</span>
-                        {% else %}<span class="status-live">LIVE</span>{% endif %}
-                    </td>
-                    <td><span class="mono" style="font-weight:700;color:var(--tertiary)">{{ b.our_odds }}</span></td>
-                    <td class="mono">${{ b.stake }}</td>
-                    <td>
-                        {% if b.status == 'won' %}
-                        <span class="mono green">+${{ b.profit }}</span>
-                        {% elif b.status == 'lost' %}
-                        <span class="mono red">-${{ b.stake }}</span>
-                        {% else %}
-                        <span class="mono" style="color:var(--text-faint)">$0</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if b.status == 'pending' %}
-                        <div style="display:flex;gap:4px">
-                            <button class="btn btn-primary btn-sm" onclick="resolveBet('{{ b.id }}','won')">W</button>
-                            <button class="btn btn-danger btn-sm" onclick="resolveBet('{{ b.id }}','lost')">L</button>
-                            <button class="btn btn-secondary btn-sm" onclick="deleteBet('{{ b.id }}')" title="Remove" style="font-size:10px;padding:2px 6px">X</button>
-                        </div>
-                        {% else %}
-                        <span style="color:var(--text-faint)">-</span>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-                </tbody>
-            </table></div>
-            {% if not recent_bets %}
-            <div class="empty">No positions yet. Place bets from the pulse cards above.</div>
-            {% endif %}
-        </div>
+    <div class="health-row">
+        <div class="health-label">Pending Bets</div>
+        <div class="health-val">{{ bet_stats.pending|default(0) }}</div>
     </div>
-
-    <!-- Right Sidebar -->
-    <div>
-        <!-- Tennis Markets by Tournament -->
-        <div class="section mb-16">
-            <div class="section-header">
-                <div class="section-title" style="color:var(--tertiary)">Tennis Markets</div>
-                <span class="badge badge-tennis">{{ all_tennis_matches|default(tennis_matches)|length }}</span>
-            </div>
-            {% set all_markets = all_tennis_matches|default(tennis_matches) %}
-            {% set ns = namespace(current_tournament='') %}
-            {% for m in all_markets %}
-                {% if m.tournament != ns.current_tournament %}
-                    {% set ns.current_tournament = m.tournament %}
-                    <div class="tournament-name">{{ m.tournament or 'Unknown' }} ({{ m.tour or '' }})</div>
-                {% endif %}
-                <div class="pm-row">
-                    <div class="pm-header">
-                        <div class="pm-team">{{ m.player1[:14] }} vs {{ m.player2[:14] }}</div>
-                    </div>
-                    <div class="pm-bars">
-                        <div class="pm-bar-row">
-                            <div class="pm-bar-label">{{ m.player1[:6] }}</div>
-                            <div class="pm-bar"><div class="pm-bar-fill" style="width:{{ (m.player1_price*100)|round }}%"></div></div>
-                            <div class="pm-bar-pct">{{ (m.player1_price*100)|round(0) }}% ({{ m.player1_odds }})</div>
-                        </div>
-                        <div class="pm-bar-row">
-                            <div class="pm-bar-label">{{ m.player2[:6] }}</div>
-                            <div class="pm-bar"><div class="pm-bar-fill" style="width:{{ (m.player2_price*100)|round }}%;opacity:0.5"></div></div>
-                            <div class="pm-bar-pct">{{ (m.player2_price*100)|round(0) }}% ({{ m.player2_odds }})</div>
-                        </div>
-                    </div>
-                </div>
-            {% endfor %}
-            {% if not tennis_matches %}
-            <div class="empty">No tennis markets</div>
-            {% endif %}
-        </div>
-
-        <!-- AI Tip -->
-        <div class="ai-tip">
-            <div class="ai-tip-header">
-                <div class="ai-tip-dot"></div>
-                <div class="ai-tip-label">AI Strategy Tip</div>
-            </div>
-            <div class="ai-tip-text">
-                {% if tennis_matches %}
-                    {% set underdogs = tennis_matches|selectattr("player2_price")|list %}
-                    Tracking <b>{{ tennis_matches|length }}</b> active tennis markets on Polymarket.
-                    Focus on main tour matches with clear value. Look for odds > 2.0 where you have conviction.
-                    Avoid early-round matches with unknown qualifiers.
-                {% else %}
-                    No tennis markets available. Run update to fetch latest odds from Polymarket.
-                {% endif %}
-            </div>
-        </div>
-
-        <!-- System Health -->
-        <div class="section">
-            <div class="section-header">
-                <div class="section-title">System Health</div>
-            </div>
-            <div class="health-row">
-                <div class="health-label">Tennis Markets</div>
-                <div class="health-val" style="color:var(--tertiary)">{{ tennis_matches|length }}</div>
-            </div>
-            <div class="health-row">
-                <div class="health-label">Pending Bets</div>
-                <div class="health-val">{{ bet_stats.pending|default(0) }}</div>
-            </div>
-            <div class="health-row">
-                <div class="health-label">Bankroll</div>
-                <div class="health-val green">${{ bet_stats.bankroll|default(1000)|round(2) }}</div>
-            </div>
-            <div class="health-row">
-                <div class="health-label">ROI</div>
-                <div class="health-val {% if (bet_stats.roi|default(0)) >= 0 %}green{% else %}red{% endif %}">{{ bet_stats.roi|default(0) }}%</div>
-            </div>
-        </div>
+    <div class="health-row">
+        <div class="health-label">Bankroll</div>
+        <div class="health-val green">${{ "{:,.2f}".format(bet_stats.bankroll|default(1000)) }}</div>
+    </div>
+    <div class="health-row">
+        <div class="health-label">ROI</div>
+        <div class="health-val {% if (bet_stats.roi|default(0)) >= 0 %}green{% else %}red{% endif %}">{{ bet_stats.roi|default(0) }}%</div>
     </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-setTimeout(() => location.reload(), 120000);
+let _activePage = 1, _historyPage = 1;
+const _PER_PAGE = 15;
 
-// ─── Live WebSocket ───
-(function() {
-    const section = document.getElementById('live-section');
-    const cards = document.getElementById('live-cards');
-    const countEl = document.getElementById('live-count');
-    const wsStatus = document.getElementById('live-ws-status');
-    let ws = null;
-    let reconnectTimer = null;
-
-    function connect() {
-        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        ws = new WebSocket(`${proto}//${location.host}/ws/live`);
-
-        ws.onopen = () => { wsStatus.textContent = 'live'; wsStatus.style.color = 'var(--primary)'; };
-        ws.onclose = () => {
-            wsStatus.textContent = 'reconnecting...';
-            wsStatus.style.color = 'var(--warning)';
-            reconnectTimer = setTimeout(connect, 5000);
-        };
-        ws.onerror = () => {};
-        ws.onmessage = (e) => {
-            try { render(JSON.parse(e.data)); } catch(err) {}
-        };
-    }
-
-    function render(state) {
-        const matches = state.matches || [];
-        if (matches.length === 0) { section.style.display = 'none'; return; }
-        section.style.display = '';
-
-        // Sort: bets first, then by price movement (further from 50/50 = more decisive)
-        matches.sort((a, b) => (b.has_bet ? 1 : 0) - (a.has_bet ? 1 : 0) || Math.abs(b.player1_price - 0.5) - Math.abs(a.player1_price - 0.5));
-
-        const withBet = matches.filter(m => m.has_bet).length;
-        countEl.textContent = `${matches.length} LIVE` + (withBet ? ` · ${withBet} MY BETS` : '');
-
-        let html = '';
-        for (const m of matches) {
-            const hasBet = m.has_bet;
-            const p1Fav = m.player1_price > m.player2_price;
-            const p1Pct = Math.round(m.player1_price * 100);
-            const p2Pct = Math.round(m.player2_price * 100);
-
-            // Determine if we're winning: current price > implied prob from our bet odds
-            let winning = false;
-            let border = '';
-            let betBadge = '';
-            if (hasBet && m.our_price && m.bet_odds) {
-                const ourImplied = 1 / m.bet_odds;  // what we paid
-                winning = m.our_price > ourImplied;  // current market says we're ahead
-                border = winning
-                    ? 'border-color:rgba(162,255,0,0.5);box-shadow:0 0 12px rgba(162,255,0,0.1)'
-                    : 'border-color:rgba(255,113,108,0.5);box-shadow:0 0 12px rgba(255,113,108,0.1)';
-                betBadge = winning
-                    ? '<span class="badge" style="background:var(--primary-bg);color:var(--primary);font-size:9px">WINNING</span>'
-                    : '<span class="badge" style="background:var(--error-bg);color:var(--error);font-size:9px">LOSING</span>';
-            } else if (hasBet) {
-                border = 'border-color:rgba(191,90,242,0.4)';
-                betBadge = '<span class="badge" style="background:var(--tertiary-bg);color:var(--tertiary);font-size:9px">MY BET</span>';
-            }
-
-            // P&L indicator
-            let betInfo = '';
-            if (hasBet) {
-                const pctStr = m.our_price ? Math.round(m.our_price * 100) + '%' : '';
-                const color = winning ? 'var(--primary)' : 'var(--error)';
-                const bg = winning ? 'var(--primary-bg)' : 'var(--error-bg)';
-                // Potential profit/loss
-                const potentialWin = m.bet_stake ? `+$${Math.round(m.bet_stake * (m.bet_odds - 1))}` : '';
-                betInfo = `<div style="margin-top:8px;padding:6px 8px;background:${bg};border-radius:6px;font-size:11px;font-family:'Manrope',sans-serif">
-                    <span style="color:${color};font-weight:700">${m.bet_label}</span>
-                    <span style="color:var(--text-faint)"> @ ${m.bet_odds} · $${m.bet_stake}</span>
-                    <span style="float:right;color:${color};font-weight:700;font-family:'Space Grotesk',sans-serif">${pctStr} ${winning ? potentialWin : '-$'+m.bet_stake}</span>
-                </div>`;
-            }
-
-            html += `<div class="pulse-card" style="min-width:300px;${border}">
-                <div class="pulse-top">
-                    <div class="pulse-event">
-                        <span class="badge badge-live">LIVE</span>
-                        ${m.tournament ? m.tournament.slice(0, 20) : ''}
-                    </div>
-                    ${betBadge}
-                </div>
-                <div style="margin:10px 0">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-                        <span style="font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:${p1Fav?700:500};color:${p1Fav?'var(--text)':'var(--text-dim)'}">${m.player1}</span>
-                        <span style="font-family:'Space Grotesk',sans-serif;font-size:16px;font-weight:700;color:${p1Fav?'var(--tertiary)':'var(--text-dim)'}">${m.player1_odds}</span>
-                    </div>
-                    <div style="display:flex;gap:4px;height:6px;margin-bottom:6px">
-                        <div style="flex:${p1Pct};background:var(--tertiary);border-radius:3px;transition:flex .5s"></div>
-                        <div style="flex:${p2Pct};background:var(--surface-highest);border-radius:3px;transition:flex .5s"></div>
-                    </div>
-                    <div style="display:flex;justify-content:space-between;align-items:center">
-                        <span style="font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:${!p1Fav?700:500};color:${!p1Fav?'var(--text)':'var(--text-dim)'}">${m.player2}</span>
-                        <span style="font-family:'Space Grotesk',sans-serif;font-size:16px;font-weight:700;color:${!p1Fav?'var(--tertiary)':'var(--text-dim)'}">${m.player2_odds}</span>
-                    </div>
-                    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-faint);margin-top:4px;font-family:'Manrope',sans-serif">
-                        <span>${p1Pct}%</span><span>${p2Pct}%</span>
-                    </div>
-                </div>
-                ${betInfo}
-                ${m.pm_url ? `<a href="${m.pm_url}" target="_blank" style="font-size:9px;color:var(--text-faint);margin-top:6px;display:block;font-family:'Manrope',sans-serif">Polymarket &rarr;</a>` : ''}
-            </div>`;
-        }
-        cards.innerHTML = html;
-    }
-
-    // Initial fetch via REST (faster than waiting for WS)
-    fetch('/api/live').then(r => r.json()).then(render).catch(() => {});
-    connect();
-})();
-
-function toggleExtra(id) {
-    const el = document.getElementById(id);
-    if (el) el.style.display = el.style.display === 'none' ? '' : 'none';
+function _esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+
+function _fmtMoney(n) {
+    return Math.round(n || 0).toLocaleString();
+}
+
+function _renderActiveRow(b) {
+    const badge = b.match_type === 'doubles'
+        ? '<span class="badge" style="background:#1e3a5f;color:#60a5fa;font-size:8px">DBL</span>'
+        : '<span class="badge" style="background:var(--surface-highest);color:var(--text-muted);font-size:8px">SGL</span>';
+    const fallback = (b.odds_source && b.odds_source !== 'polymarket')
+        ? ' <span title="Fallback: SofaScore odds — Polymarket may differ" style="color:#ef4444;font-weight:700;font-size:11px;font-family:\'Manrope\',sans-serif">(F)</span>'
+        : '';
+    const reason = b.reason
+        ? `<span class="info-tip" onclick="this.classList.toggle('show')" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:var(--surface-highest);color:var(--text-faint);font-size:10px;cursor:pointer;flex-shrink:0;position:relative">i<span class="info-bubble">${_esc(b.reason)}</span></span>`
+        : '';
+    const matchupText = `${_esc(b.team1_name)} vs ${_esc(b.team2_name)}`;
+    const matchup = b.pm_url
+        ? `<a href="${_esc(b.pm_url)}" target="_blank" style="color:var(--text);text-decoration:none;font-weight:500" onmouseover="this.style.textDecoration='underline';this.style.color='var(--tertiary)'" onmouseout="this.style.textDecoration='none';this.style.color='var(--text)'">${matchupText}</a>`
+        : `<span style="color:var(--text)">${matchupText}</span>`;
+    const event = (b.event || '-').slice(0, 25);
+    const round = b.round ? `<br><span style="color:var(--warning);font-size:10px">${_esc(b.round)}</span>` : '';
+    const date = b.created_at ? b.created_at.slice(0, 10) : '-';
+    const time = (b.created_at && b.created_at.length > 11) ? `<br><span style="color:var(--text-dim);font-size:10px">${_esc(b.created_at.slice(11,16))} UTC</span>` : '';
+    return `<tr>
+        <td>${badge}</td>
+        <td>
+            <div style="font-weight:700;color:#4ade80;font-family:'Space Grotesk',sans-serif;display:flex;align-items:center;gap:6px">${_esc(b.market_label)}${reason}</div>
+            <div class="sub">${matchup}</div>
+        </td>
+        <td>
+            <span style="color:var(--text);font-weight:600;font-size:12px">${_esc(event)}</span>${round}
+        </td>
+        <td><span class="mono" style="font-weight:700;color:var(--tertiary)">${_esc(b.our_odds)}</span>${fallback}</td>
+        <td class="mono">$${_esc(b.stake)}</td>
+        <td>
+            <span style="color:var(--text);font-size:11px;font-family:'Space Grotesk',sans-serif">${_esc(date)}</span>${time}
+        </td>
+        <td>
+            <div style="display:flex;gap:3px">
+                <button class="btn btn-primary btn-sm" onclick="resolveBet('${_esc(b.id)}','won')">W</button>
+                <button class="btn btn-danger btn-sm" onclick="resolveBet('${_esc(b.id)}','lost')">L</button>
+                <button class="btn btn-secondary btn-sm" style="font-size:10px;padding:2px 6px" onclick="resolveBet('${_esc(b.id)}','void')">V</button>
+                <button class="btn btn-secondary btn-sm" onclick="resolveSingle('${_esc(b.id)}', this)" style="font-size:10px;padding:2px 6px;color:var(--tertiary)" title="Check SofaScore">R</button>
+                <button class="btn btn-secondary btn-sm" onclick="deleteBet('${_esc(b.id)}')" style="font-size:10px;padding:2px 6px;color:var(--error)">X</button>
+            </div>
+        </td>
+    </tr>`;
+}
+
+function _renderHistoryRow(b) {
+    const badge = b.match_type === 'doubles'
+        ? '<span class="badge" style="background:#1e3a5f;color:#60a5fa;font-size:8px">DBL</span>'
+        : '<span class="badge" style="background:var(--surface-highest);color:var(--text-muted);font-size:8px">SGL</span>';
+    const fallback = (b.odds_source && b.odds_source !== 'polymarket')
+        ? ' <span title="Odds came from SofaScore (Polymarket missing) — actual fill may differ" style="color:#ef4444;font-weight:700;font-size:11px;font-family:\'Manrope\',sans-serif">(F)</span>'
+        : '';
+    const matchupText = `${_esc(b.team1_name)} vs ${_esc(b.team2_name)}`;
+    const matchup = b.pm_url
+        ? `<a href="${_esc(b.pm_url)}" target="_blank" style="color:var(--text);text-decoration:none;font-weight:500" onmouseover="this.style.textDecoration='underline';this.style.color='var(--tertiary)'" onmouseout="this.style.textDecoration='none';this.style.color='var(--text)'">${matchupText}</a>`
+        : `<span style="color:var(--text)">${matchupText}</span>`;
+    const event = (b.event || '-').slice(0, 25);
+    const round = b.round ? `<br><span style="color:var(--warning);font-size:10px">${_esc(b.round)}</span>` : '';
+    const date = b.created_at ? b.created_at.slice(0, 10) : '-';
+    const time = (b.created_at && b.created_at.length > 11) ? `<br><span style="color:var(--text-dim);font-size:10px">${_esc(b.created_at.slice(11,16))} UTC</span>` : '';
+
+    let statusHtml = '';
+    if (b.status === 'won') statusHtml = '<span class="status-won">WON</span>';
+    else if (b.status === 'lost') statusHtml = '<span class="status-lost">LOST</span>';
+    else statusHtml = '<span class="badge" style="background:var(--surface-highest);color:var(--text-faint)">VOID</span>';
+
+    let plHtml = '<span class="mono" style="color:var(--text-faint)">$0</span>';
+    if (b.status === 'won') plHtml = `<span class="mono green">+$${_fmtMoney(b.profit)}</span>`;
+    else if (b.status === 'lost') plHtml = `<span class="mono red">-$${_fmtMoney(b.stake)}</span>`;
+
+    return `<tr>
+        <td>${badge}</td>
+        <td>
+            <div style="font-weight:700;color:#4ade80;font-family:'Space Grotesk',sans-serif">${_esc(b.market_label)}</div>
+            <div class="sub">${matchup}</div>
+        </td>
+        <td>
+            <span style="color:var(--text);font-weight:600;font-size:12px">${_esc(event)}</span>${round}
+        </td>
+        <td><span class="mono" style="font-weight:700;color:var(--tertiary)">${_esc(b.our_odds)}</span>${fallback}</td>
+        <td class="mono">$${_esc(b.stake)}</td>
+        <td>${statusHtml} ${plHtml}</td>
+        <td>
+            <span style="color:var(--text);font-size:11px;font-family:'Space Grotesk',sans-serif">${_esc(date)}</span>${time}
+        </td>
+    </tr>`;
+}
+
+async function loadActive(page) {
+    page = Math.max(1, page || 1);
+    try {
+        const r = await fetch(`/api/bets/active?page=${page}&per_page=${_PER_PAGE}`);
+        const d = await r.json();
+        _activePage = d.page;
+        const tbody = document.getElementById('active-body');
+        const countEl = document.getElementById('active-count');
+        countEl.textContent = `${d.total} OPEN`;
+        if (!d.bets.length) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-faint);padding:20px">No active bets right now.</td></tr>';
+        } else {
+            tbody.innerHTML = d.bets.map(_renderActiveRow).join('');
+        }
+        const pager = document.getElementById('active-pager');
+        if (d.total_pages > 1) {
+            pager.classList.remove('hidden');
+            document.getElementById('active-pageinfo').textContent = `Page ${d.page} of ${d.total_pages} · ${d.total} bets`;
+            document.getElementById('active-prev').disabled = (d.page <= 1);
+            document.getElementById('active-next').disabled = (d.page >= d.total_pages);
+        } else {
+            pager.classList.add('hidden');
+        }
+    } catch(e) { console.error('loadActive', e); }
+}
+
+async function loadHistory(page) {
+    page = Math.max(1, page || 1);
+    try {
+        const r = await fetch(`/api/bets/history?page=${page}&per_page=${_PER_PAGE}`);
+        const d = await r.json();
+        _historyPage = d.page;
+        const tbody = document.getElementById('history-body');
+        const countEl = document.getElementById('history-count');
+        countEl.textContent = d.total;
+        if (!d.bets.length) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-faint);padding:20px">No resolved bets yet.</td></tr>';
+        } else {
+            tbody.innerHTML = d.bets.map(_renderHistoryRow).join('');
+        }
+        const pager = document.getElementById('history-pager');
+        if (d.total_pages > 1) {
+            pager.classList.remove('hidden');
+            document.getElementById('history-pageinfo').textContent = `Page ${d.page} of ${d.total_pages} · ${d.total} bets`;
+            document.getElementById('history-prev').disabled = (d.page <= 1);
+            document.getElementById('history-next').disabled = (d.page >= d.total_pages);
+        } else {
+            pager.classList.add('hidden');
+        }
+    } catch(e) { console.error('loadHistory', e); }
+}
+
+// Override base.html versions: refresh tables instead of reloading whole page
+window.resolveBet = async function(betId, result) {
+    const r = await apiPost('/api/bet/resolve', { bet_id: betId, result: result });
+    if (r && r.ok) {
+        loadActive(_activePage);
+        loadHistory(1);
+    }
+};
+window.deleteBet = async function(betId) {
+    const r = await apiPost('/api/bet/delete', { bet_id: betId });
+    if (r && r.ok) {
+        loadActive(_activePage);
+        loadHistory(_historyPage);
+    }
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadActive(1);
+    loadHistory(1);
+});
+
+// Auto-refresh both tables every 2 min (no full page reload)
+setInterval(() => {
+    loadActive(_activePage);
+    loadHistory(_historyPage);
+}, 120000);
 </script>
 {% endblock %}

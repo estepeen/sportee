@@ -27,13 +27,41 @@ def save_picks(picks: list[dict]):
         json.dump(picks, f, indent=2)
 
 
+_WTA_KEYWORDS = ("wta", "women", "ladies")
+_DOUBLES_KEYWORDS = ("doubles", "pair", "dvojic", "čtyřhr")
+
+
+def _is_excluded(p: dict, source: str) -> bool:
+    """Reject WTA (women) and doubles picks — we only track ATP singles."""
+    if (p.get("tour") or "").upper() == "WTA":
+        return True
+    if (p.get("match_type") or "").lower() == "doubles":
+        return True
+    src = (source or "").lower()
+    if any(k in src for k in _DOUBLES_KEYWORDS):
+        return True
+    haystack = " ".join(
+        str(p.get(k) or "") for k in ("tournament", "tour", "event")
+    ).lower()
+    if any(k in haystack for k in _WTA_KEYWORDS):
+        return True
+    for key in ("pick", "opponent", "player1", "player2"):
+        if "/" in (p.get(key) or ""):
+            return True
+    return False
+
+
 def track_picks(new_picks: list[dict], source: str = "ai_picks"):
-    """Save new picks that aren't already tracked."""
+    """Save new picks that aren't already tracked. Skips WTA and doubles."""
     history = load_picks()
     existing_keys = {(p["pick"], p["opponent"], p["date_added"][:10]) for p in history}
 
     added = 0
+    skipped = 0
     for p in new_picks:
+        if _is_excluded(p, source):
+            skipped += 1
+            continue
         key = (p.get("pick", ""), p.get("opponent", ""), datetime.now().strftime("%Y-%m-%d"))
         if key in existing_keys:
             continue
@@ -62,6 +90,8 @@ def track_picks(new_picks: list[dict], source: str = "ai_picks"):
     if added:
         save_picks(history)
         logger.info(f"Tracked {added} new {source} picks")
+    if skipped:
+        logger.info(f"Skipped {skipped} {source} picks (WTA/doubles filter)")
 
 
 def resolve_picks():
