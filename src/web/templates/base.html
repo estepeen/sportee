@@ -289,6 +289,18 @@ async function deleteBet(betId) {
     }
 }
 
+async function refreshBetOdds(betId, btn) {
+    const original = btn ? btn.textContent : '';
+    if (btn) { btn.textContent = '…'; btn.disabled = true; }
+    const r = await apiPost('/api/bet/refresh-odds', { bet_id: betId });
+    if (r && r.ok) {
+        setTimeout(() => location.reload(), 600);
+    } else if (btn) {
+        btn.textContent = original;
+        btn.disabled = false;
+    }
+}
+
 async function refreshPositions() {
     try {
         const r = await fetch('/api/positions');

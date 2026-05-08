@@ -1738,6 +1738,86 @@ async def api_delete_bet(request: Request):
     return JSONResponse({"ok": True, "message": "Position removed"})
 
 
+@app.post("/api/bet/refresh-odds")
+async def api_refresh_bet_odds(request: Request):
+    """Manually refresh odds for a single pending bet from current Polymarket.
+
+    This is the user's "use your one finalize on demand" button. After this
+    call the bet is locked (odds_finalized=True) — same semantics as the cron.
+    Forces a fresh PM fetch first so we see the latest mid-price, not cache.
+    """
+    import unicodedata
+
+    def _norm(s: str) -> str:
+        s = "".join(c for c in unicodedata.normalize("NFD", s or "")
+                    if unicodedata.category(c) != "Mn")
+        return s.lower().strip()
+
+    data = await request.json()
+    bet_id = data.get("bet_id", "")
+    if not bet_id:
+        return JSONResponse({"ok": False, "error": "Missing bet_id"})
+
+    bet_manager.load()
+    bet = next((b for b in bet_manager.bets if b.get("id") == bet_id), None)
+    if not bet:
+        return JSONResponse({"ok": False, "error": "Bet not found"})
+    if bet.get("status") != "pending":
+        return JSONResponse({"ok": False, "error": "Bet is not pending"})
+
+    try:
+        pm_client = PolymarketClient()
+        await pm_client.fetch_tennis_markets()
+        try:
+            await pm_client.client.aclose()
+        except Exception:
+            pass
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"Manual refresh PM fetch failed: {e}")
+
+    pm_data = PolymarketClient.load_tennis_odds()
+    pick = _norm(bet.get("team1_name", ""))
+    opp = _norm(bet.get("team2_name", ""))
+    pm_match = None
+    for m in pm_data:
+        p1, p2 = _norm(m.get("player1", "")), _norm(m.get("player2", ""))
+        if {p1, p2} == {pick, opp}:
+            pm_match = m
+            break
+    if not pm_match:
+        return JSONResponse({"ok": False, "error": "Match not found on Polymarket"})
+
+    if _norm(pm_match.get("player1", "")) == pick:
+        new_odds = pm_match.get("player1_odds", 0) or 0
+    else:
+        new_odds = pm_match.get("player2_odds", 0) or 0
+    if not new_odds or new_odds < 1.01 or new_odds > 100:
+        return JSONResponse({"ok": False, "error": "Polymarket odds unavailable"})
+
+    old_odds = bet.get("our_odds", 0) or 0
+    bet["our_odds"] = new_odds
+    bet["odds_source"] = "polymarket"
+    bet["odds_finalized"] = True
+    bet["odds_finalized_at"] = datetime.utcnow().isoformat()
+    bet["odds_finalized_manual"] = True
+
+    new_mkt_prob = 1.0 / new_odds
+    if isinstance(bet.get("bet_meta"), dict):
+        bet["bet_meta"]["mkt_prob"] = round(new_mkt_prob, 4)
+        our_prob = bet.get("our_prob", 0) or 0
+        bet["bet_meta"]["edge"] = round((our_prob - new_mkt_prob) * 100, 1)
+
+    bet_manager.save()
+    delta = round(new_odds - old_odds, 3)
+    return JSONResponse({
+        "ok": True,
+        "old_odds": old_odds,
+        "new_odds": new_odds,
+        "delta": delta,
+        "message": f"Odds {old_odds} → {new_odds} (locked)",
+    })
+
+
 # ─── API: Notifications ──────────────────────────────────
 
 @app.get("/api/notifications")
