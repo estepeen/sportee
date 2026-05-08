@@ -112,8 +112,8 @@
             <td>
                 <div style="display:inline-flex;align-items:center;gap:4px">
                     <span class="mono" style="font-weight:700;color:var(--tertiary)">{{ b.our_odds }}</span>
-                    <button class="btn btn-secondary btn-sm" onclick="refreshBetOdds('{{ b.id }}', this)" style="font-size:10px;padding:2px 6px;color:var(--warning)" title="Refresh odds from Polymarket and lock">↻</button>
-                    {% if b.odds_finalized %}<span class="badge" style="background:var(--surface-highest);color:var(--text-faint);font-size:8px" title="Odds locked at +4h or via manual refresh">LOCK</span>{% endif %}
+                    {% if b.is_live %}<span class="badge" style="background:#ef4444;color:#fff;font-size:8px" title="Match is live — odds frozen">LIVE</span>
+                    {% else %}<button class="btn btn-secondary btn-sm" onclick="refreshBetOdds('{{ b.id }}', this)" style="font-size:10px;padding:2px 6px;color:var(--warning)" title="Refresh odds from Polymarket and lock">↻</button>{% endif %}
                 </div>
             </td>
             <td class="mono">${{ b.stake }}</td>

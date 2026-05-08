@@ -267,6 +267,18 @@ async def dashboard(request: Request):
 
 # ─── Active Bets ───────────────────────────────────────────
 
+async def _live_bet_ids() -> set:
+    """Set of pending-bet IDs whose match is currently live on Polymarket.
+    Returns empty set on any failure — non-fatal."""
+    try:
+        pending = [b for b in bet_manager.bets if b.get("status") == "pending"]
+        state = await get_live_state(pending_bets=pending)
+        return {m.get("bet_id") for m in state.get("matches", []) if m.get("bet_id")}
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"live state probe failed: {e}")
+        return set()
+
+
 @app.get("/active-bets", response_class=HTMLResponse)
 async def active_bets_page(request: Request, q: str = "", tour: str = ""):
     bet_manager.load()
@@ -285,6 +297,10 @@ async def active_bets_page(request: Request, q: str = "", tour: str = ""):
                    or ql in (b.get("team2_name", "") or "").lower()]
     if tour:
         pending = [b for b in pending if tour.lower() in (b.get("event", "") or "").lower()]
+
+    live_ids = await _live_bet_ids()
+    for b in pending:
+        b["is_live"] = b.get("id") in live_ids
 
     return templates.TemplateResponse("active_bets.html", {
         "request": request,
@@ -1765,6 +1781,10 @@ async def api_refresh_bet_odds(request: Request):
     if bet.get("status") != "pending":
         return JSONResponse({"ok": False, "error": "Bet is not pending"})
 
+    live_ids = await _live_bet_ids()
+    if bet_id in live_ids:
+        return JSONResponse({"ok": False, "error": "Match is live — cannot update odds"})
+
     try:
         pm_client = PolymarketClient()
         await pm_client.fetch_tennis_markets()
@@ -1966,6 +1986,9 @@ async def api_bets_active(page: int = 1, per_page: int = 15):
          if b.get("status") == "pending" and _passes_quality_filter(b)],
         key=lambda b: b.get("created_at", ""), reverse=True,
     )
+    live_ids = await _live_bet_ids()
+    for b in bets:
+        b["is_live"] = b.get("id") in live_ids
     return JSONResponse(_paginate_bets(bets, page, per_page))
 
 
