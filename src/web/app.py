@@ -274,7 +274,7 @@ async def active_bets_page(request: Request, q: str = "", tour: str = ""):
     pending = sorted(
         [b for b in bet_manager.bets
          if b.get("status") == "pending" and _passes_quality_filter(b)],
-        key=lambda b: b.get("created_at", ""),
+        key=lambda b: b.get("recorded_at") or b.get("created_at", ""),
         reverse=True,
     )
 
@@ -606,6 +606,7 @@ def _generate_smart_picks(matches: list) -> list:
                 "tournament": tourn, "tour": tour,
                 "round": m.get("round", ""),
                 "date": m.get("date", ""),
+                "start_time": m.get("start_time", ""),
                 "bet_type": bet_type,
                 "ml_tag": ml_tag,
                 "ml_prob": prob,
@@ -924,12 +925,32 @@ def _auto_record_all_picks(all_picks: list):
     new_picks = []
     batch_seen = set()  # track within current batch to avoid ai_picks + value_bets dupes
     skipped_quality = 0
+    skipped_too_close = 0
+    now_utc = datetime.utcnow()
+    from datetime import timedelta
+    MIN_LEAD = timedelta(hours=2)
     for p in all_picks:
         # Quality filter: odds in [MIN_ODDS, MAX_ODDS] window, prob above floor
         odds = p.get("odds", 0) or 0
         prob = p.get("ml_prob", 0) or 0
         if odds < MIN_ODDS or odds > MAX_ODDS or prob < MIN_OUR_PROB:
             skipped_quality += 1
+            continue
+
+        # Hard rule: must be at least 2h before official match start.
+        # Without this guard, periodic refreshes can record live matches as
+        # new bets if SofaScore's is_live flag is stale.
+        start_iso = p.get("start_time", "")
+        if not start_iso:
+            skipped_too_close += 1
+            continue
+        try:
+            start_dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00")).replace(tzinfo=None)
+        except (ValueError, TypeError):
+            skipped_too_close += 1
+            continue
+        if start_dt - now_utc < MIN_LEAD:
+            skipped_too_close += 1
             continue
 
         pick = p.get("pick", "")
@@ -1067,7 +1088,12 @@ def _auto_record_all_picks(all_picks: list):
         recorded += 1
 
     bet_manager.save()
-    logger.info(f"Auto-recorded {recorded} picks to My Positions (skipped {skipped_quality} on quality filter, bankroll: ${bet_manager.bankroll:.0f})")
+    logger.info(
+        f"Auto-recorded {recorded} picks to My Positions "
+        f"(skipped {skipped_quality} on quality filter, "
+        f"{skipped_too_close} on <2h-to-start filter, "
+        f"bankroll: ${bet_manager.bankroll:.0f})"
+    )
     try:
         lock_file.close()
     except Exception:
@@ -1192,6 +1218,7 @@ def _generate_value_bets(matches: list) -> list:
                 "tour": tour,
                 "round": m.get("round", ""),
                 "date": m.get("date", ""),
+                "start_time": m.get("start_time", ""),
                 "bet_type": bet_type,
                 "ml_prob": prob,
                 "mkt_prob": mkt_prob,
@@ -1964,7 +1991,8 @@ async def api_bets_active(page: int = 1, per_page: int = 15):
     bets = sorted(
         [b for b in bet_manager.bets
          if b.get("status") == "pending" and _passes_quality_filter(b)],
-        key=lambda b: b.get("created_at", ""), reverse=True,
+        key=lambda b: b.get("recorded_at") or b.get("created_at", ""),
+        reverse=True,
     )
     return JSONResponse(_paginate_bets(bets, page, per_page))
 

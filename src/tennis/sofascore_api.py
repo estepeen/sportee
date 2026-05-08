@@ -348,6 +348,8 @@ async def fetch_upcoming_with_odds(days: int = 2) -> list[dict]:
 
                 rnd = ev.get("round", {}).get("name", "")
                 is_live = status.get("isInProgress", False)
+                start_ts = ev.get("startTimestamp", 0) or 0
+                start_iso = datetime.utcfromtimestamp(start_ts).isoformat() if start_ts else ""
 
                 # Build player slug for SofaScore URL
                 home_slug = home.get("slug", "")
@@ -370,6 +372,7 @@ async def fetch_upcoming_with_odds(days: int = 2) -> list[dict]:
                     "player1_slug": home_slug,
                     "player2_slug": away_slug,
                     "is_live": is_live,
+                    "start_time": start_iso,
                     "status": status.get("description", ""),
                 })
 
@@ -511,6 +514,7 @@ def load_sofascore_odds() -> list[dict]:
             "player1_price": p1_prob,
             "player2_price": p2_prob,
             "is_live": m.get("is_live", False),
+            "start_time": m.get("start_time", ""),
             "status": m.get("status", ""),
             # Extra markets
             "first_set_p1_odds": first_set.get("player1_odds", 0),
