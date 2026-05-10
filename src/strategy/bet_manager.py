@@ -18,7 +18,19 @@ MAX_EDGE = 0.25        # cap edge at 25% - anything higher means model is likely
 MIN_CONFIDENCE = 0.4   # minimum model confidence
 MIN_ODDS = 1.25        # minimum odds (user preference) — heavy favorites pay too little
 MAX_ODDS = 1.70        # cap: odds > 1.70 historically lose money (ROI -44% on 1.80+)
-MIN_OUR_PROB = 0.75    # bumped 2026-05-08: ml<0.75 -> -7% ROI on 160 historical bets
+ODDS_SAFE_SPLIT = 1.50    # odds < this counts as 'safe favorite'
+ML_SAFE_THRESHOLD = 0.70  # min ml_prob for safer (low-odds) bets
+ML_RISKY_THRESHOLD = 0.75 # min ml_prob for higher-odds bets
+MIN_OUR_PROB = ML_SAFE_THRESHOLD  # legacy floor — actual gate is passes_ml_threshold()
+
+
+def passes_ml_threshold(odds: float, prob: float) -> bool:
+    """Hybrid ml gate: <1.50 odds need ml>=0.70, 1.50-1.70 need ml>=0.75.
+
+    Empirically (46d, 331 bets): ml>=0.75 alone gives +12.2% ROI on 3.0 bets/day,
+    relaxing to ml>=0.70 for sub-1.50 odds yields 3.2 bets/day at +11.2% ROI."""
+    threshold = ML_SAFE_THRESHOLD if odds < ODDS_SAFE_SPLIT else ML_RISKY_THRESHOLD
+    return prob >= threshold
 KELLY_FRACTION = 0.25  # quarter Kelly
 MAX_STAKE_PCT = 5.0    # max 5% of bankroll per bet
 MIN_STAKE_PCT = 0.5    # min 0.5% of bankroll per bet
@@ -130,7 +142,7 @@ class BetManager:
                     continue
                 if market["odds"] < MIN_ODDS or market["odds"] > MAX_ODDS:
                     continue
-                if market["prob"] < MIN_OUR_PROB:
+                if not passes_ml_threshold(market["odds"], market["prob"]):
                     continue
 
                 # Deduplicate by team pair + market type

@@ -14,14 +14,14 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from config.settings import DB_PATH
-from src.strategy.bet_manager import BetManager, MIN_ODDS, MAX_ODDS, MIN_OUR_PROB
+from src.strategy.bet_manager import BetManager, MIN_ODDS, MAX_ODDS, MIN_OUR_PROB, passes_ml_threshold
 
 
 def _passes_quality_filter(b: dict) -> bool:
     """Bets are only shown / placed if they meet historical-ROI thresholds."""
     odds = b.get("our_odds") or 0
     prob = b.get("our_prob") or 0
-    return MIN_ODDS <= odds <= MAX_ODDS and prob >= MIN_OUR_PROB
+    return MIN_ODDS <= odds <= MAX_ODDS and passes_ml_threshold(odds, prob)
 
 
 def _filtered_bet_stats(bm) -> dict:
@@ -958,7 +958,7 @@ def _auto_record_all_picks(all_picks: list):
         # Quality filter: odds in [MIN_ODDS, MAX_ODDS] window, prob above floor
         odds = p.get("odds", 0) or 0
         prob = p.get("ml_prob", 0) or 0
-        if odds < MIN_ODDS or odds > MAX_ODDS or prob < MIN_OUR_PROB:
+        if odds < MIN_ODDS or odds > MAX_ODDS or not passes_ml_threshold(odds, prob):
             skipped_quality += 1
             continue
 
@@ -1719,8 +1719,8 @@ async def api_place_bet(request: Request):
 
     if our_odds > MAX_ODDS:
         return JSONResponse({"ok": False, "error": f"Odds {our_odds} exceed cap {MAX_ODDS}"})
-    if our_prob < MIN_OUR_PROB:
-        return JSONResponse({"ok": False, "error": f"Our prob {our_prob:.2f} below min {MIN_OUR_PROB}"})
+    if not passes_ml_threshold(our_odds, our_prob):
+        return JSONResponse({"ok": False, "error": f"Prob {our_prob:.2f} fails hybrid ml gate at odds {our_odds:.2f}"})
 
     if stake > bet_manager.bankroll:
         return JSONResponse({"ok": False, "error": f"Insufficient bankroll (${bet_manager.bankroll:.2f})"})
