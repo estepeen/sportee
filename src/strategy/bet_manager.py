@@ -19,16 +19,13 @@ MIN_CONFIDENCE = 0.4   # minimum model confidence
 MIN_ODDS = 1.25        # minimum odds (user preference) — heavy favorites pay too little
 MAX_ODDS = 1.70        # cap: odds > 1.70 historically lose money (ROI -44% on 1.80+)
 ODDS_SAFE_SPLIT = 1.50    # odds < this counts as 'safe favorite'
-ML_SAFE_THRESHOLD = 0.70  # min ml_prob for safer (low-odds) bets
-ML_RISKY_THRESHOLD = 0.75 # min ml_prob for higher-odds bets
+ML_SAFE_THRESHOLD = 0.0   # disabled — odds<=1.70 cap alone is the filter
+ML_RISKY_THRESHOLD = 0.0  # disabled — odds<=1.70 cap alone is the filter
 MIN_OUR_PROB = ML_SAFE_THRESHOLD  # legacy floor — actual gate is passes_ml_threshold()
 
 
 def passes_ml_threshold(odds: float, prob: float) -> bool:
-    """Hybrid ml gate: <1.50 odds need ml>=0.70, 1.50-1.70 need ml>=0.75.
-
-    Empirically (46d, 331 bets): ml>=0.75 alone gives +12.2% ROI on 3.0 bets/day,
-    relaxing to ml>=0.70 for sub-1.50 odds yields 3.2 bets/day at +11.2% ROI."""
+    """ML prob gate disabled. Kept as a no-op so callers don't need changes."""
     threshold = ML_SAFE_THRESHOLD if odds < ODDS_SAFE_SPLIT else ML_RISKY_THRESHOLD
     return prob >= threshold
 KELLY_FRACTION = 0.25  # quarter Kelly
