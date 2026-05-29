@@ -184,11 +184,16 @@ def _get_avg_stats(conn, pid, date_str, n=10):
     }
 
 
-def build_training_data(since_year=2020):
+def build_training_data(since_year=2020, since_date=None):
     """Build training dataset from historical matches.
 
     For each match, compute features using only data available BEFORE the match.
     Label: 1 if player1 (winner) won (always 1 in raw data, but we swap randomly).
+
+    `since_date` ("YYYY-MM-DD") overrides `since_year` for the lower date bound.
+    Point-in-time Elo is always replayed over the FULL history regardless, so a
+    narrow date window still gets correct pre-match ratings — handy for building a
+    small recent slice for diagnostics without rebuilding 60k feature rows.
     """
     conn = get_tennis_db()
 
@@ -209,9 +214,9 @@ def build_training_data(since_year=2020):
         WHERE m.date >= ? AND m.w_sets > 0
         AND m.comment NOT LIKE '%Walkover%'
         ORDER BY m.date
-    """, (f"{since_year}-01-01",)).fetchall()
+    """, (since_date or f"{since_year}-01-01",)).fetchall()
 
-    logger.info(f"Building features for {len(matches)} matches since {since_year}...")
+    logger.info(f"Building features for {len(matches)} matches since {since_date or since_year}...")
 
     rows = []
     for i, m in enumerate(matches):
@@ -546,7 +551,17 @@ def train_model(since_year=2020):
                         "skipping comparison and promoting candidate to bootstrap"
                     )
                 else:
-                    val_acc_champion = float(champion_model.score(X_val, y_val))
+                    # Score the champion on ITS OWN feature set — a previous
+                    # champion may have been trained with a different column list
+                    # (e.g. a feature we since removed). Reindex the holdout to the
+                    # champion's features, filling any now-missing column with 0,
+                    # so a feature-count change can't crash the gate into a blind
+                    # default-promote.
+                    champ_features = champion.get("features", FEATURE_COLS)
+                    X_val_champ = df_holdout.reindex(
+                        columns=champ_features, fill_value=0
+                    ).fillna(0)
+                    val_acc_champion = float(champion_model.score(X_val_champ, y_val))
                     logger.info(f"Champion validation accuracy: {val_acc_champion:.4f}")
                     if val_acc_candidate < val_acc_champion - GATE_TOLERANCE:
                         promoted = False
