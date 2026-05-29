@@ -23,6 +23,7 @@ import httpx
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.tennis.database import get_tennis_db, init_tennis_db
+from src.tennis.sofascore_api import normalize_surface
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger(__name__)
@@ -180,9 +181,7 @@ async def phase1_matches(start_year: int = 2015):
                         cat = ev.get("tournament", {}).get("category", {}).get("name", "")
                         tour = "WTA" if "wta" in cat.lower() else "ATP"
 
-                        ground = ev.get("groundType", "")
-                        surface_map = {"hardcourt": "Hard", "clay": "Clay", "grass": "Grass", "carpet": "Carpet"}
-                        surface = surface_map.get(ground, "Hard")
+                        surface, indoor = normalize_surface(ev.get("groundType", ""), tournament)
 
                         rnd = ev.get("round", {}).get("name", "")
 
@@ -209,9 +208,9 @@ async def phase1_matches(start_year: int = 2015):
                                 series, tour, winner_id, loser_id,
                                 winner_rank, loser_rank, w_sets, l_sets,
                                 w1, l1, w2, l2, w3, l3, w4, l4, w5, l5
-                            ) VALUES (?,?,?,0,?,3,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                            ) VALUES (?,?,?,?,?,3,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                         """, (
-                            date_str, tournament, surface,
+                            date_str, tournament, surface, indoor,
                             rnd, tour, tour,
                             wid, lid, w_rank, l_rank,
                             max(h_sets, a_sets), min(h_sets, a_sets),

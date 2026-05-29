@@ -385,14 +385,7 @@ def _compute_fatigue(conn, player_id: int, current_tournament: str = "",
     """, (player_id, player_id, date_14d_ago, ref_date)).fetchall()
 
     matches_14d = len(rows)
-    sets_14d = 0
-    for r in rows:
-        w_sets = r["w_sets"] or 0
-        l_sets = r["l_sets"] or 0
-        if r["winner_id"] == player_id:
-            sets_14d += w_sets + l_sets
-        else:
-            sets_14d += w_sets + l_sets
+    sets_14d = sum((r["w_sets"] or 0) + (r["l_sets"] or 0) for r in rows)
 
     # Days since last match
     last_match = conn.execute("""

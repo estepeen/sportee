@@ -13,7 +13,7 @@ from sklearn.calibration import CalibratedClassifierCV
 from sklearn.model_selection import TimeSeriesSplit
 
 from src.tennis.database import get_tennis_db
-from src.tennis.elo import expected_score
+from src.tennis.elo import expected_score, compute_elo_history
 from src.tennis.features import _compute_fatigue, _compute_serve_features, ROUND_WEIGHTS, TIER_WEIGHTS
 
 logger = logging.getLogger(__name__)
@@ -37,8 +37,6 @@ FEATURE_COLS = [
     "h2h_wr", "h2h_total", "h2h_surface_wr",
     # Tournament
     "tournament_wr_diff", "p1_tournament_wr", "p2_tournament_wr",
-    # Regional
-    "region_wr_diff",
     # Style
     "p1_is_lefty", "p2_is_lefty",
     # Streaks
@@ -85,12 +83,6 @@ LGB_PARAMS = dict(
     random_state=42,
     verbose=-1,
 )
-
-
-def _get_elo_at_date(conn, pid, elo_type, date_str, elo_cache):
-    """Get Elo rating for a player. Uses precomputed cache."""
-    key = (pid, elo_type)
-    return elo_cache.get(key, 1500)
 
 
 def _get_form(conn, pid, date_str, n=10, surface=None):
@@ -200,10 +192,9 @@ def build_training_data(since_year=2020):
     """
     conn = get_tennis_db()
 
-    # Load current Elo as approximation (ideally we'd replay, but this is good enough)
-    elo_cache = {}
-    for row in conn.execute("SELECT player_id, elo_type, elo FROM tennis_elo").fetchall():
-        elo_cache[(row["player_id"], row["elo_type"])] = row["elo"]
+    # Point-in-time Elo: pre-match snapshots (leakage-free), keyed by match id.
+    logger.info("Replaying Elo history for point-in-time ratings...")
+    elo_hist = compute_elo_history(conn)
 
     # Get all matches since since_year
     matches = conn.execute("""
@@ -242,11 +233,19 @@ def build_training_data(since_year=2020):
         surface = m["surface"]
         surface_key = SURFACE_MAP.get(surface, "hard")
 
-        # Elo
-        p1_elo = _get_elo_at_date(conn, p1_id, "global", date_str, elo_cache)
-        p2_elo = _get_elo_at_date(conn, p2_id, "global", date_str, elo_cache)
-        p1_s_elo = _get_elo_at_date(conn, p1_id, surface_key, date_str, elo_cache)
-        p2_s_elo = _get_elo_at_date(conn, p2_id, surface_key, date_str, elo_cache)
+        # Elo — pre-match snapshot (winner/loser perspective), mapped to p1/p2 via swap
+        snap = elo_hist.get(m["id"], {})
+        w_g, l_g = snap.get("w_global", 1500), snap.get("l_global", 1500)
+        w_sg, l_sg = snap.get("w_surface", 1500), snap.get("l_surface", 1500)
+        w_n, l_n = snap.get("w_global_n", 0), snap.get("l_global_n", 0)
+        if swap:  # p1 is the loser
+            p1_elo, p2_elo = l_g, w_g
+            p1_s_elo, p2_s_elo = l_sg, w_sg
+            p1_exp, p2_exp = l_n, w_n
+        else:     # p1 is the winner
+            p1_elo, p2_elo = w_g, l_g
+            p1_s_elo, p2_s_elo = w_sg, l_sg
+            p1_exp, p2_exp = w_n, l_n
 
         # Form
         p1_f5, _ = _get_form(conn, p1_id, date_str, 5)
@@ -324,8 +323,6 @@ def build_training_data(since_year=2020):
             # Tournament
             "tournament_wr_diff": p1_tw - p2_tw,
             "p1_tournament_wr": p1_tw, "p2_tournament_wr": p2_tw,
-            # Regional (simplified)
-            "region_wr_diff": 0,
             # Style
             "p1_is_lefty": 1 if p1_hand == "L" else 0,
             "p2_is_lefty": 1 if p2_hand == "L" else 0,
@@ -336,9 +333,9 @@ def build_training_data(since_year=2020):
             "best_of": m["best_of"] or 3,
             "is_indoor": m["indoor"] or 0,
             "surface_code": {"hard": 0, "clay": 1, "grass": 2}.get(surface_key, 0),
-            # Experience
-            "p1_experience": 100, "p2_experience": 100,
-            "exp_diff": 0,
+            # Experience (pre-match global Elo match counts)
+            "p1_experience": min(p1_exp, 200), "p2_experience": min(p2_exp, 200),
+            "exp_diff": p1_exp - p2_exp,
             # Stats
             "p1_avg_aces": p1_stats["aces"],
             "p2_avg_aces": p2_stats["aces"],

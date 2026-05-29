@@ -124,6 +124,71 @@ def compute_all_elo():
     return total_players
 
 
+def compute_elo_history(conn) -> dict:
+    """Replay all matches chronologically and snapshot PRE-match Elo for each match.
+
+    Returns {match_id: {w_global, l_global, w_surface, l_surface,
+                        w_global_n, l_global_n, w_surface_n, l_surface_n}}.
+
+    This is the leakage-free counterpart to the live `tennis_elo` table: training
+    must see the rating a player carried *into* a match, not the post-match value
+    (which has already absorbed the outcome). The Elo trajectory mirrors
+    compute_all_elo() — updates are applied only for non-Retired/non-Walkover
+    matches — but a snapshot is recorded for every match so training rows
+    (which include Retired) can all be looked up.
+    """
+    elo = {}
+    counts = {}
+
+    def get(pid, t):
+        if pid not in elo:
+            elo[pid] = {}
+            counts[pid] = {}
+        if t not in elo[pid]:
+            elo[pid][t] = INITIAL_ELO
+            counts[pid][t] = 0
+        return elo[pid][t]
+
+    def update(w_id, l_id, t, k):
+        w, l = get(w_id, t), get(l_id, t)
+        exp_w = expected_score(w, l)
+        elo[w_id][t] = w + k * (1.0 - exp_w)
+        elo[l_id][t] = l + k * (0.0 - (1.0 - exp_w))
+        counts[w_id][t] += 1
+        counts[l_id][t] += 1
+
+    matches = conn.execute("""
+        SELECT id, winner_id, loser_id, surface, series, indoor, date, comment
+        FROM tennis_matches
+        ORDER BY date ASC, id ASC
+    """).fetchall()
+
+    history = {}
+    for m in matches:
+        w_id, l_id = m["winner_id"], m["loser_id"]
+        surface_key = SURFACE_TYPES.get(m["surface"] or "Hard", "hard")
+
+        # Snapshot BEFORE applying the match outcome
+        history[m["id"]] = {
+            "w_global": get(w_id, "global"), "l_global": get(l_id, "global"),
+            "w_surface": get(w_id, surface_key), "l_surface": get(l_id, surface_key),
+            "w_global_n": counts[w_id]["global"], "l_global_n": counts[l_id]["global"],
+            "w_surface_n": counts[w_id][surface_key], "l_surface_n": counts[l_id][surface_key],
+        }
+
+        comment = (m["comment"] or "")
+        if "Retired" in comment or "Walkover" in comment:
+            continue  # mirror compute_all_elo: don't let these move ratings
+
+        k = K_FACTORS.get(m["series"] or "", DEFAULT_K)
+        update(w_id, l_id, "global", k)
+        update(w_id, l_id, surface_key, k)
+        if m["indoor"]:
+            update(w_id, l_id, "indoor", k)
+
+    return history
+
+
 def get_player_elo(player_id: int) -> dict:
     """Get all Elo ratings for a player."""
     conn = get_tennis_db()

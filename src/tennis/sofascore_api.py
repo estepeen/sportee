@@ -69,6 +69,43 @@ def get_usage() -> dict:
     return {"month": u["month"], "used": u["count"], "limit": 300000, "remaining": 300000 - u["count"]}
 
 
+# Tournament-name → surface fallback when groundType is missing/unknown
+_SURFACE_NAME_HINTS = [
+    ("roland garros", "Clay"), ("french open", "Clay"), ("monte carlo", "Clay"),
+    ("rome", "Clay"), ("madrid", "Clay"), ("barcelona", "Clay"), ("hamburg", "Clay"),
+    ("kitzbuhel", "Clay"), ("gstaad", "Clay"), ("bastad", "Clay"), ("umag", "Clay"),
+    ("estoril", "Clay"), ("munich", "Clay"), ("houston", "Clay"),
+    ("wimbledon", "Grass"), ("halle", "Grass"), ("queen", "Grass"),
+    ("s-hertogenbosch", "Grass"), ("eastbourne", "Grass"), ("stuttgart", "Grass"),
+    ("mallorca", "Grass"), ("newport", "Grass"),
+]
+
+
+def normalize_surface(ground: str, tournament: str = "") -> tuple[str, int]:
+    """Map a SofaScore groundType to (surface, indoor).
+
+    SofaScore returns values like 'Red clay', 'Hardcourt outdoor', 'Hardcourt indoor',
+    'Clay', 'Grass', 'Hard'. The old exact-match map silently defaulted everything to
+    'Hard' (e.g. 'Red clay' → 'Hard'), so substring matching is required.
+    """
+    g = (ground or "").strip().lower()
+    indoor = 1 if "indoor" in g else 0
+    if "clay" in g:
+        return "Clay", indoor
+    if "grass" in g:
+        return "Grass", indoor
+    if "carpet" in g:
+        return "Carpet", indoor
+    if "hard" in g:
+        return "Hard", indoor
+    # groundType missing/unknown → guess from tournament name
+    t = (tournament or "").lower()
+    for kw, surf in _SURFACE_NAME_HINTS:
+        if kw in t:
+            return surf, indoor
+    return "Hard", indoor
+
+
 def _strip_diacritics(s: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
 
@@ -181,9 +218,7 @@ async def fetch_finished_matches(date_str: str, client: httpx.AsyncClient) -> li
             cat = ev.get("tournament", {}).get("category", {}).get("name", "")
             tour = "WTA" if "wta" in cat.lower() else "ATP"
 
-            ground = ev.get("groundType", "")
-            surface_map = {"hardcourt": "Hard", "clay": "Clay", "grass": "Grass", "carpet": "Carpet"}
-            surface = surface_map.get(ground, "Hard")
+            surface, indoor = normalize_surface(ev.get("groundType", ""), tournament)
 
             rnd = ev.get("round", {}).get("name", "")
 
@@ -209,6 +244,7 @@ async def fetch_finished_matches(date_str: str, client: httpx.AsyncClient) -> li
                 "date": date_str,
                 "tournament": tournament,
                 "surface": surface,
+                "indoor": indoor,
                 "tour": tour,
                 "round": rnd,
                 "winner": _sofascore_name_to_db(winner_full),
@@ -272,9 +308,9 @@ async def import_recent(days: int = 10):
                             series, tour, winner_id, loser_id,
                             winner_rank, loser_rank, w_sets, l_sets,
                             w1, l1, w2, l2, w3, l3, w4, l4, w5, l5
-                        ) VALUES (?,?,?,0,?,3,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        ) VALUES (?,?,?,?,?,3,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """, (
-                        m["date"], m["tournament"], m["surface"],
+                        m["date"], m["tournament"], m["surface"], m.get("indoor", 0),
                         m["round"], m["tour"], m["tour"],
                         winner_id, loser_id,
                         m["winner_rank"], m["loser_rank"],

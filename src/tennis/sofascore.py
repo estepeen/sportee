@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from src.tennis.database import get_tennis_db, init_tennis_db
+from src.tennis.sofascore_api import normalize_surface
 
 logger = logging.getLogger(__name__)
 
@@ -135,9 +136,7 @@ async def fetch_recent_matches(days: int = 10):
                     loser_id = _get_or_create_player(conn, loser_db)
 
                     # Surface
-                    ground = ev.get("groundType", "")
-                    surface_map = {"hardcourt": "Hard", "clay": "Clay", "grass": "Grass", "carpet": "Carpet"}
-                    surface = surface_map.get(ground, "Hard")
+                    surface, indoor = normalize_surface(ev.get("groundType", ""), tournament)
 
                     # Round
                     rnd = ev.get("roundInfo", {}).get("name", "")
@@ -173,7 +172,7 @@ async def fetch_recent_matches(days: int = 10):
                             w1, l1, w2, l2, w3, l3, w4, l4, w5, l5
                         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """, (
-                        date, tournament, surface, 0, rnd, 3,
+                        date, tournament, surface, indoor, rnd, 3,
                         series, tour, winner_id, loser_id,
                         w_rank, l_rank, max(h_sets, a_sets), min(h_sets, a_sets),
                         set_scores.get("w1"), set_scores.get("l1"),
