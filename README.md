@@ -98,6 +98,19 @@ Python · LightGBM · scikit-learn · pandas / numpy · SQLite · httpx · APSch
 
 ---
 
+## Author
+
+Created by **STPN** — [github.com/estepeen](https://github.com/estepeen).
+
 ## License
 
-Private project. All rights reserved.
+You are free to use, copy, modify, and build on this project, including for
+commercial purposes, under two conditions:
+
+1. **Credit the author.** Keep a visible attribution to **STPN**
+   ([github.com/estepeen](https://github.com/estepeen)) in any derivative work,
+   documentation, or product that uses this code.
+2. **Keep the signature.** The "Created by STPN" attribution in the web
+   dashboard footer must be retained.
+
+Provided "as is", without warranty of any kind.
